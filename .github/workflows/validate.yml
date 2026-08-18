@@ -1,0 +1,71 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+      - uses: NuGet/setup-nuget@v2
+      - name: Restore and build legacy application
+        shell: pwsh
+        run: |
+          nuget restore .\src\LegacyLab.sln -NonInteractive
+          dotnet restore .\src\LegacyLab.sln -p:RestorePackagesConfig=true
+          msbuild .\src\LegacyLab.sln /t:Build /p:Configuration=Release /m /nologo
+
+      - name: Test legacy application
+        shell: pwsh
+        run: dotnet test .\src\LegacyWeb.Tests\LegacyWeb.Tests.csproj -c Release --no-build --no-restore
+
+      - name: Validate PowerShell, SQL, parity, and secret hygiene
+        shell: pwsh
+        run: |
+          .\configuration\powershell\Test-ConfigurationScripts.ps1
+          $failures = @()
+          Get-ChildItem .\scripts,.\configuration,.\scenarios -Include *.ps1,*.psm1 -Recurse | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            $failures += $errors
+          }
+          if ($failures) { throw ($failures -join [Environment]::NewLine) }
+          .\scripts\Test-SqlScripts.ps1
+          .\scripts\Test-IacParity.ps1
+          .\scripts\Test-ScenarioDispatch.ps1
+          .\scripts\Test-SecretHygiene.ps1
+
+      - name: Compile scenario Bicep
+        shell: pwsh
+        run: |
+          Get-ChildItem .\scenarios -Filter main.bicep -Recurse | ForEach-Object {
+            Write-Host "Compiling $($_.FullName)"
+            az bicep build --file $_.FullName --stdout | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Bicep compilation failed for $($_.FullName)." }
+          }
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+      - name: Validate scenario Terraform
+        shell: pwsh
+        run: |
+          Get-ChildItem .\scenarios -Filter versions.tf -Recurse | ForEach-Object {
+            $directory = $_.Directory.FullName
+            Write-Host "Validating $directory"
+            terraform "-chdir=$directory" fmt -check -recursive
+            if ($LASTEXITCODE -ne 0) { throw "Terraform formatting failed for $directory." }
+            terraform "-chdir=$directory" init -backend=false -input=false
+            if ($LASTEXITCODE -ne 0) { throw "Terraform initialization failed for $directory." }
+            terraform "-chdir=$directory" validate
+            if ($LASTEXITCODE -ne 0) { throw "Terraform validation failed for $directory." }
+          }

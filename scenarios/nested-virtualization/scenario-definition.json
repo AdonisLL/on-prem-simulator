@@ -1,0 +1,28 @@
+{
+  "scenario": "nested-virtualization",
+  "azureVmRoles": ["hyperv01"],
+  "vmRoles": ["dc01", "web01", "web02", "sql01", "migrate01"],
+  "subnets": ["snet-hyperv-host"],
+  "privateAddresses": {
+    "dc01": "192.168.100.10",
+    "web01": "192.168.100.30",
+    "web02": "192.168.100.31",
+    "sql01": "192.168.100.20",
+    "migrate01": "192.168.100.40"
+  },
+  "host": {
+    "vmName": "hyperv01",
+    "internalSwitch": "NestedLabInternal",
+    "natName": "NestedLabNat",
+    "prefix": "192.168.100.0/24",
+    "hostAddress": "192.168.100.1",
+    "storageDriveLetter": "F"
+  },
+  "innerVms": [
+    {"name":"dc01","media":"serverBaseVhdx","generation":2,"memoryMb":4096,"processors":2,"address":"192.168.100.10","startDelay":0},
+    {"name":"sql01","media":"serverBaseVhdx","generation":2,"memoryMb":8192,"processors":4,"address":"192.168.100.20","startDelay":30},
+    {"name":"web01","media":"serverBaseVhdx","generation":2,"memoryMb":4096,"processors":2,"address":"192.168.100.30","startDelay":60},
+    {"name":"web02","media":"serverBaseVhdx","generation":2,"memoryMb":4096,"processors":2,"address":"192.168.100.31","startDelay":90},
+    {"name":"migrate01","media":"migrateApplianceVhd","generation":1,"memoryMb":32768,"processors":8,"address":"192.168.100.40","startDelay":120}
+  ]
+}

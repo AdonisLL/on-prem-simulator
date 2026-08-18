@@ -1,0 +1,8 @@
+body { margin: 0; font-family: "Segoe UI", sans-serif; background: #f5f7fa; color: #17202a; }
+header { padding: 1rem 2rem; color: white; background: #243b53; }
+main { max-width: 960px; margin: 2rem auto; padding: 1.5rem; background: white; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: .65rem; border-bottom: 1px solid #ccd6e0; text-align: left; }
+button { margin-right: .25rem; }
+.server { padding: .75rem; background: #e8f1fb; }
+.notice { padding: .75rem; background: #e5f7ed; }

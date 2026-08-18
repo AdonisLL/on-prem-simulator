@@ -1,0 +1,23 @@
+{
+  "scenario": "nested-virtualization",
+  "azureVmRoles": ["hyperv01"],
+  "vmRoles": ["dc01", "web01", "web02", "sql01", "migrate01"],
+  "subnets": ["snet-hyperv-host"],
+  "privateAddresses": {
+    "dc01": "192.168.100.10",
+    "web01": "192.168.100.30",
+    "web02": "192.168.100.31",
+    "sql01": "192.168.100.20",
+    "migrate01": "192.168.100.40"
+  },
+  "nestedHost": {
+    "internalSwitch": "NestedLabInternal",
+    "natName": "NestedLabNat",
+    "prefix": "192.168.100.0/24",
+    "hostAddress": "192.168.100.1"
+  },
+  "azureMigrate": {
+    "discoveryMode": "hyperv",
+    "registration": "manual-checkpoint-required"
+  }
+}

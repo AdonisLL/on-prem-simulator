@@ -1,0 +1,101 @@
+name: Smoke deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: Deployment scenario
+        required: true
+        type: choice
+        options: [AzureNative, NestedVirtualization]
+      iac:
+        description: IaC implementation
+        required: true
+        type: choice
+        options: [Bicep, Terraform]
+      location:
+        description: Azure region
+        required: true
+        default: eastus2
+      configure_nested_guests:
+        description: Configure nested Hyper-V guests (requires approved media and a dedicated environment)
+        required: true
+        type: boolean
+        default: false
+      guest_media_manifest_path:
+        description: Nested media manifest path on a dedicated runner; required when configuring nested guests
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    environment: lab-smoke-${{ inputs.scenario }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: microsoft/setup-msbuild@v2
+      - uses: NuGet/setup-nuget@v2
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy and validate
+        shell: pwsh
+        run: |
+          $resourceGroup = "rg-opmlab-smoke-${{ github.run_id }}"
+          $alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%*-_'
+          $bytes = [byte[]]::new(32)
+          [Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+          $plainPassword = -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+          $arguments = @{
+            Scenario = '${{ inputs.scenario }}'
+            Iac = '${{ inputs.iac }}'
+            ResourceGroupName = $resourceGroup
+            Location = '${{ inputs.location }}'
+            AutoApprove = $true
+            AdminPassword = (ConvertTo-SecureString $plainPassword -AsPlainText -Force)
+          }
+          if (
+            '${{ inputs.scenario }}' -eq 'NestedVirtualization' -and
+            '${{ inputs.configure_nested_guests }}' -ne 'true'
+          ) {
+            $arguments.SkipGuestConfiguration = $true
+          }
+          elseif ('${{ inputs.scenario }}' -eq 'NestedVirtualization') {
+            if ([string]::IsNullOrWhiteSpace('${{ inputs.guest_media_manifest_path }}')) {
+              throw 'guest_media_manifest_path is required when configure_nested_guests is true.'
+            }
+            $arguments.GuestMediaManifestPath = '${{ inputs.guest_media_manifest_path }}'
+          }
+          try {
+            .\scripts\Deploy-Lab.ps1 @arguments
+            if (-not $arguments.ContainsKey('SkipGuestConfiguration')) {
+              .\scripts\Test-Lab.ps1 `
+                -Scenario '${{ inputs.scenario }}' `
+                -ResourceGroupName $resourceGroup
+            }
+          }
+          finally {
+            $plainPassword = $null
+            $arguments.AdminPassword = $null
+          }
+
+      - name: Always remove smoke resources
+        if: always()
+        shell: pwsh
+        run: |
+          .\scripts\Remove-Lab.ps1 `
+            -Scenario '${{ inputs.scenario }}' `
+            -ResourceGroupName "rg-opmlab-smoke-${{ github.run_id }}" `
+            -Iac '${{ inputs.iac }}' `
+            -Confirm:$false

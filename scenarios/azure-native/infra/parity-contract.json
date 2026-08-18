@@ -1,0 +1,32 @@
+{
+  "vmRoles": ["dc01", "web01", "web02", "sql01", "migrate01"],
+  "subnets": [
+    "AzureBastionSubnet",
+    "snet-management",
+    "snet-identity",
+    "snet-web",
+    "snet-data"
+  ],
+  "privateAddresses": {
+    "dc01": "10.50.2.4",
+    "web01": "10.50.3.4",
+    "web02": "10.50.3.5",
+    "sql01": "10.50.4.4",
+    "migrate01": "10.50.1.4"
+  },
+  "requiredControls": [
+    "Azure Bastion",
+    "NAT gateway",
+    "Key Vault",
+    "auto shutdown",
+    "no workload public IP"
+  ],
+  "sharedOutputs": [
+    "vnet",
+    "bastion",
+    "key vault",
+    "staging storage",
+    "discovery inventory",
+    "web urls"
+  ]
+}

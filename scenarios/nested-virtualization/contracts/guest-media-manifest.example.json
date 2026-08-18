@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "serverBaseVhdx": {
+    "hostPath": "F:\\LabMedia\\WindowsServer2022-Base.vhdx",
+    "workstationValidationPath": "C:\\ApprovedMedia\\WindowsServer2022-Base.vhdx",
+    "sha256": "REPLACE_WITH_APPROVED_SHA256"
+  },
+  "migrateApplianceVhd": {
+    "hostPath": "F:\\LabMedia\\AzureMigrate-HyperV-Appliance.vhd",
+    "workstationValidationPath": "C:\\ApprovedMedia\\AzureMigrate-HyperV-Appliance.vhd",
+    "sha256": "REPLACE_WITH_APPROVED_SHA256"
+  },
+  "sharedContent": {
+    "hostPath": "F:\\LabMedia\\shared",
+    "repositoryPaths": ["src", "database", "configuration"]
+  }
+}

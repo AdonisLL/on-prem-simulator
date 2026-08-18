@@ -1,0 +1,7 @@
+name_prefix        = "opmlab"
+location           = "eastus2"
+resource_group_name = "rg-opmlab-source"
+deployment_id       = "workshop01"
+admin_username     = "labadmin"
+
+# Pass the password through TF_VAR_admin_password; never place it in this file.

@@ -1,0 +1,41 @@
+@model IEnumerable<LegacyWeb.Models.Product>
+@{
+    Layout = "~/Views/Shared/_Layout.cshtml";
+    ViewBag.Title = "Inventory";
+}
+<p class="server">Served by <strong>@ViewBag.ServerName</strong>; database read at @ViewBag.LastReadUtc UTC.</p>
+@if (TempData["UploadResult"] != null)
+{
+    <p class="notice">@TempData["UploadResult"]</p>
+}
+<table>
+    <thead><tr><th>SKU</th><th>Product</th><th>Price</th><th>On hand</th><th>Adjustment</th></tr></thead>
+    <tbody>
+    @foreach (var product in Model)
+    {
+        <tr>
+            <td>@product.Sku</td>
+            <td>@product.Name</td>
+            <td>@product.UnitPrice.ToString("C")</td>
+            <td>@product.QuantityOnHand</td>
+            <td>
+                @using (Html.BeginForm("Adjust", "Home"))
+                {
+                    @Html.AntiForgeryToken()
+                    @Html.Hidden("id", product.Id)
+                    <button name="delta" value="-1">-1</button>
+                    <button name="delta" value="1">+1</button>
+                }
+            </td>
+        </tr>
+    }
+    </tbody>
+</table>
+<h2>Receiving document</h2>
+<p>This deliberately stores a file on the current web server for the modernization exercise.</p>
+@using (Html.BeginForm("Upload", "Home", FormMethod.Post, new { enctype = "multipart/form-data" }))
+{
+    @Html.AntiForgeryToken()
+    <input type="file" name="document" />
+    <button type="submit">Upload</button>
+}

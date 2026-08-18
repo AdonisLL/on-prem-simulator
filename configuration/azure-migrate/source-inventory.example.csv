@@ -1,0 +1,5 @@
+Server name,IP address,Operating system,Credentials friendly name
+dc01.corp.contoso.local,10.50.2.4,Windows Server,Lab domain discovery
+web01.corp.contoso.local,10.50.3.4,Windows Server,Lab domain discovery
+web02.corp.contoso.local,10.50.3.5,Windows Server,Lab domain discovery
+sql01.corp.contoso.local,10.50.4.4,Windows Server,Lab domain discovery
