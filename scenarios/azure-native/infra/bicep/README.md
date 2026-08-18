@@ -12,6 +12,11 @@ group. Follow the private secret-seeding, manual artifact staging, and resume
 procedure in `labs\01-deploy-source\README.md`; do not add a deployer IP to an
 NSG, enable account keys, or mint a SAS.
 
+The root deployment command also supports the explicitly approved
+`-UseTemporaryPolicyExemption` path. It supplies
+`enableTemporaryDeploymentAccess=true`, then the lifecycle script disables
+public access and removes/restores `SecurityControl` in `finally`.
+
 ```powershell
 $env:ONPREM_LAB_ADMIN_PASSWORD = '<generated secure value>'
 az deployment group what-if --resource-group <rg> --parameters .\scenarios\azure-native\infra\bicep\main.bicepparam

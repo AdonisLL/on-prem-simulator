@@ -61,7 +61,11 @@ data "azurerm_client_config" "current" {}
 resource "azurerm_resource_group" "this" {
   name     = var.resource_group_name
   location = var.location
-  tags     = merge(var.tags, { deploymentId = var.deployment_id })
+  tags = merge(
+    var.tags,
+    { deploymentId = var.deployment_id },
+    var.enable_temporary_deployment_access ? { SecurityControl = "Ignore" } : {}
+  )
 }
 
 resource "azurerm_public_ip" "nat" {
@@ -321,12 +325,12 @@ resource "azurerm_key_vault" "this" {
   rbac_authorization_enabled    = true
   purge_protection_enabled      = true
   soft_delete_retention_days    = 7
-  public_network_access_enabled = false
+  public_network_access_enabled = var.enable_temporary_deployment_access
   tags                          = var.tags
 
   network_acls {
     bypass         = "AzureServices"
-    default_action = "Deny"
+    default_action = var.enable_temporary_deployment_access ? "Allow" : "Deny"
   }
 }
 
@@ -376,11 +380,11 @@ resource "azurerm_storage_account" "staging" {
   allow_nested_items_to_be_public = false
   shared_access_key_enabled       = false
   default_to_oauth_authentication = true
-  public_network_access_enabled   = false
+  public_network_access_enabled   = var.enable_temporary_deployment_access
   tags                            = var.tags
 
   network_rules {
-    default_action = "Deny"
+    default_action = var.enable_temporary_deployment_access ? "Allow" : "Deny"
     bypass         = ["AzureServices"]
   }
 }

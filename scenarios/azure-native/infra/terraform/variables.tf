@@ -32,6 +32,12 @@ variable "tags" {
   }
 }
 
+variable "enable_temporary_deployment_access" {
+  type        = bool
+  description = "Temporarily permits authenticated deployment-time Key Vault and Storage access. Lifecycle scripts disable it after guest configuration."
+  default     = false
+}
+
 variable "address_prefixes" {
   type = object({
     vnet       = string

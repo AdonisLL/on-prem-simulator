@@ -7,7 +7,8 @@ param(
     [string]$SqlImageUrn = 'MicrosoftSQLServer:sql2016sp3-ws2019:sqldev:latest',
     [securestring]$AdminPassword,
     [switch]$SkipGuestConfiguration,
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+    [switch]$UseTemporaryPolicyExemption
 )
 
 Set-StrictMode -Version Latest
@@ -29,6 +30,12 @@ if ($LASTEXITCODE -ne 0 -or -not $account) {
 $deploymentId = & az group show --name $ResourceGroupName --query tags.deploymentId --output tsv --only-show-errors 2>$null
 if (-not $deploymentId) {
     $deploymentId = [Guid]::NewGuid().ToString('N').Substring(0, 10)
+}
+$previousSecurityControlTag = $null
+$temporaryPolicyExemptionActivated = $false
+if ($UseTemporaryPolicyExemption) {
+    $previousSecurityControlTag = & az group show --name $ResourceGroupName `
+        --query tags.SecurityControl --output tsv --only-show-errors 2>$null
 }
 
 $sqlImageParts = $SqlImageUrn -split ':'
@@ -56,6 +63,7 @@ $sqlDiscoveryPassword = New-LabPassword
 
 $artifactRoot = Join-Path $repoRoot 'artifacts'
 $stagingRoot = Join-Path ([IO.Path]::GetTempPath()) "onprem-lab-$([Guid]::NewGuid())"
+$deploymentError = $null
 try {
     New-Item $artifactRoot -ItemType Directory -Force | Out-Null
     New-Item $stagingRoot -ItemType Directory -Force | Out-Null
@@ -108,8 +116,18 @@ try {
     }
 
     if ($Iac -eq 'Bicep') {
-        & az group create --name $ResourceGroupName --location $Location --tags workload=on-prem-modernization-lab environment=lab deploymentId=$deploymentId --output none
+        $resourceGroupTags = @(
+            'workload=on-prem-modernization-lab',
+            'environment=lab',
+            "deploymentId=$deploymentId"
+        )
+        if ($UseTemporaryPolicyExemption) {
+            $resourceGroupTags += 'SecurityControl=Ignore'
+        }
+        & az group create --name $ResourceGroupName --location $Location `
+            --tags $resourceGroupTags --output none
         if ($LASTEXITCODE -ne 0) { throw 'Resource group creation failed.' }
+        $temporaryPolicyExemptionActivated = [bool]$UseTemporaryPolicyExemption
         $parameterFile = Join-Path $stagingRoot 'deployment-parameters.json'
         try {
             @{
@@ -122,6 +140,7 @@ try {
                     adminUsername = @{ value = 'labadmin' }
                     adminPassword = @{ value = $plainAdminPassword }
                     sqlImage      = @{ value = $sqlImage }
+                    enableTemporaryDeploymentAccess = @{ value = [bool]$UseTemporaryPolicyExemption }
                 }
             } | ConvertTo-Json -Depth 6 | Set-Content -Path $parameterFile -Encoding UTF8
             & az deployment group create `
@@ -138,15 +157,18 @@ try {
         $env:TF_VAR_admin_password = $plainAdminPassword
         $env:TF_VAR_sql_image = $sqlImage | ConvertTo-Json -Compress
         $env:ARM_SUBSCRIPTION_ID = $account
+        $temporaryAccessValue = ([bool]$UseTemporaryPolicyExemption).ToString().ToLowerInvariant()
         try {
             $terraformRoot = Join-Path $scenarioRoot 'infra\terraform'
             & terraform "-chdir=$terraformRoot" init -input=false
             if ($LASTEXITCODE -ne 0) { throw 'Terraform initialization failed.' }
+            $temporaryPolicyExemptionActivated = [bool]$UseTemporaryPolicyExemption
             & terraform "-chdir=$terraformRoot" apply `
                 "-var=resource_group_name=$ResourceGroupName" `
                 "-var=location=$Location" `
                 "-var=name_prefix=$NamePrefix" `
                 "-var=deployment_id=$deploymentId" `
+                "-var=enable_temporary_deployment_access=$temporaryAccessValue" `
                 -input=false `
                 $(if ($AutoApprove) { '-auto-approve' })
             if ($LASTEXITCODE -ne 0) { throw 'Terraform deployment failed.' }
@@ -196,6 +218,9 @@ try {
     }
 
     & az role assignment create --assignee-object-id $operatorPrincipalId --assignee-principal-type $operatorPrincipalType --role 'Key Vault Secrets Officer' --scope $vaultId --output none
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to grant temporary Key Vault secret-seeding access to the deployment principal.'
+    }
 
     if ($publicNetworkAccess -eq 'Enabled') {
         & az role assignment create --assignee-object-id $operatorPrincipalId --assignee-principal-type $operatorPrincipalType --role 'Storage Blob Data Contributor' --scope $storageId --output none
@@ -257,10 +282,64 @@ try {
 
     & "$PSScriptRoot\Export-DiscoveryInventory.ps1" -ResourceGroupName $ResourceGroupName
     Write-Host "Lab deployment completed in $ResourceGroupName. Follow labs\02-configure-migrate-appliance next."
+} catch {
+    $deploymentError = $_
 } finally {
+    $cleanupFailures = [Collections.Generic.List[string]]::new()
+    if ($UseTemporaryPolicyExemption -and $temporaryPolicyExemptionActivated) {
+        $keyVaultToLock = & az keyvault list --resource-group $ResourceGroupName `
+            --query '[0].name' --output tsv --only-show-errors 2>$null
+        if ($keyVaultToLock) {
+            & az keyvault update --resource-group $ResourceGroupName `
+                --name $keyVaultToLock --public-network-access Disabled `
+                --default-action Deny `
+                --output none --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+                $cleanupFailures.Add("Failed to disable public access on Key Vault $keyVaultToLock.")
+            }
+        }
+
+        $storageToLock = & az storage account list --resource-group $ResourceGroupName `
+            --query "[?tags.workload=='on-prem-modernization-lab'].name | [0]" `
+            --output tsv --only-show-errors 2>$null
+        if ($storageToLock) {
+            & az storage account update --resource-group $ResourceGroupName `
+                --name $storageToLock --public-network-access Disabled `
+                --default-action Deny --output none --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+                $cleanupFailures.Add("Failed to disable public access on Storage account $storageToLock.")
+            }
+        }
+
+        $resourceGroupId = & az group show --name $ResourceGroupName `
+            --query id --output tsv --only-show-errors 2>$null
+        if ($resourceGroupId) {
+            if ($previousSecurityControlTag) {
+                & az tag update --resource-id $resourceGroupId --operation Merge `
+                    --tags "SecurityControl=$previousSecurityControlTag" `
+                    --output none --only-show-errors
+            } else {
+                & az tag update --resource-id $resourceGroupId --operation Delete `
+                    --tags SecurityControl=Ignore --output none --only-show-errors
+            }
+            if ($LASTEXITCODE -ne 0) {
+                $cleanupFailures.Add('Failed to restore the resource-group SecurityControl tag.')
+            }
+        }
+    }
     $plainAdminPassword = $null
     $servicePassword = $null
     $discoveryPassword = $null
     $sqlDiscoveryPassword = $null
     Remove-Item $stagingRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if ($cleanupFailures.Count -and -not $deploymentError) {
+        throw ($cleanupFailures -join [Environment]::NewLine)
+    }
+}
+
+if ($deploymentError) {
+    if ($cleanupFailures.Count) {
+        throw "$($deploymentError.Exception.Message)$([Environment]::NewLine)Cleanup failures:$([Environment]::NewLine)$($cleanupFailures -join [Environment]::NewLine)"
+    }
+    throw $deploymentError
 }

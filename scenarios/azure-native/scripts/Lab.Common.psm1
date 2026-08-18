@@ -24,8 +24,24 @@ function Set-LabKeyVaultSecretFromMemory {
     $temporaryFile = Join-Path ([IO.Path]::GetTempPath()) "$([Guid]::NewGuid()).secret"
     try {
         [IO.File]::WriteAllText($temporaryFile, $Value)
-        & az keyvault secret set --vault-name $VaultName --name $Name --file $temporaryFile --only-show-errors --output none
-        if ($LASTEXITCODE -ne 0) { throw "Failed to store Key Vault secret $Name." }
+        $stored = $false
+        $lastError = $null
+        for ($attempt = 1; $attempt -le 20; $attempt++) {
+            $lastError = & az keyvault secret set --vault-name $VaultName `
+                --name $Name --file $temporaryFile --only-show-errors `
+                --output none 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $stored = $true
+                break
+            }
+            if ($attempt -lt 20) {
+                Write-Host "Key Vault write access is not available yet; retrying in 15 seconds ($attempt/20)."
+                Start-Sleep -Seconds 15
+            }
+        }
+        if (-not $stored) {
+            throw "Failed to store Key Vault secret $Name after waiting for RBAC propagation. Azure CLI error: $lastError"
+        }
     } finally {
         Remove-Item $temporaryFile -Force -ErrorAction SilentlyContinue
     }

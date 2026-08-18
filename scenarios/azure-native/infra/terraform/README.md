@@ -11,6 +11,11 @@ group. Follow the private secret-seeding, manual artifact staging, and resume
 procedure in `labs\01-deploy-source\README.md`; do not add a deployer IP to an
 NSG, enable account keys, or mint a SAS.
 
+The root deployment command also supports the explicitly approved
+`-UseTemporaryPolicyExemption` path. Terraform temporarily tags only the
+resource group and permits authenticated deployment access; the lifecycle
+script disables public access and removes/restores the tag in `finally`.
+
 ```powershell
 $env:ARM_SUBSCRIPTION_ID = az account show --query id --output tsv
 $env:TF_VAR_admin_password = '<generated secure value>'

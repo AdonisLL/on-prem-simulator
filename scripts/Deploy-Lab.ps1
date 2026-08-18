@@ -17,7 +17,8 @@ param(
     [string]$GuestMediaManifestPath,
     [string]$HostVmSize = 'Standard_D32s_v5',
     [string]$HostImageUrn = 'MicrosoftWindowsServer:WindowsServer:2022-datacenter-azure-edition:latest',
-    [int]$HostDataDiskSizeGb = 1024
+    [int]$HostDataDiskSizeGb = 1024,
+    [switch]$UseTemporaryPolicyExemption
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,7 +42,13 @@ if ($AutoApprove) {
 }
 if ($Scenario -eq 'AzureNative') {
     $arguments.SqlImageUrn = $SqlImageUrn
+    if ($UseTemporaryPolicyExemption) {
+        $arguments.UseTemporaryPolicyExemption = $true
+    }
 } else {
+    if ($UseTemporaryPolicyExemption) {
+        throw 'UseTemporaryPolicyExemption is currently supported only by the AzureNative scenario.'
+    }
     $arguments.HostVmSize = $HostVmSize
     $arguments.HostImageUrn = $HostImageUrn
     $arguments.HostDataDiskSizeGb = $HostDataDiskSizeGb

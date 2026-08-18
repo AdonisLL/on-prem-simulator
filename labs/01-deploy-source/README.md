@@ -17,11 +17,26 @@ Use `-Iac Terraform` for the equivalent Terraform implementation.
 
 This path creates `dc01`, `web01`, `web02`, `sql01`, and `migrate01` as private
 Azure VMs. It builds the application and assigns managed-identity access before
-guest configuration.
+guest configuration. Use `-UseTemporaryPolicyExemption` only when your
+organization authorizes the `SecurityControl=Ignore` resource-group contract.
+The script enables authenticated deployment access temporarily, then disables
+Key Vault and Storage public endpoints and removes/restores the tag in `finally`.
+
+Approved exemption example:
+
+```powershell
+.\scripts\Deploy-Lab.ps1 `
+  -Scenario AzureNative `
+  -Iac Bicep `
+  -ResourceGroupName rg-opmlab-source `
+  -Location eastus2 `
+  -UseTemporaryPolicyExemption
+```
 
 ### Private Key Vault checkpoint
 
-Key Vault and staging Storage have public access disabled. A deployment
+If the exemption switch is omitted or does not apply in the selected
+subscription, Key Vault and staging Storage have public access disabled. A deployment
 workstation without approved private-link connectivity cannot write secrets.
 An error containing `ForbiddenByConnection` and `Public network access is
 disabled` is the expected network boundary, not a reason to enable public

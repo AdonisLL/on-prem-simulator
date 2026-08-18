@@ -4,6 +4,7 @@ param keyVaultName string
 param storageAccountName string
 param vnetId string
 param privateEndpointSubnetId string
+param enableTemporaryDeploymentAccess bool = false
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
@@ -15,14 +16,14 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enablePurgeProtection: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: enableTemporaryDeploymentAccess ? 'Enabled' : 'Disabled'
     sku: {
       family: 'A'
       name: 'standard'
     }
     networkAcls: {
       bypass: 'AzureServices'
-      defaultAction: 'Deny'
+      defaultAction: enableTemporaryDeploymentAccess ? 'Allow' : 'Deny'
       ipRules: []
       virtualNetworkRules: []
     }
@@ -88,11 +89,11 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     allowSharedKeyAccess: false
     defaultToOAuthAuthentication: true
     minimumTlsVersion: 'TLS1_2'
-    publicNetworkAccess: 'Disabled'
+    publicNetworkAccess: enableTemporaryDeploymentAccess ? 'Enabled' : 'Disabled'
     supportsHttpsTrafficOnly: true
     networkAcls: {
       bypass: 'AzureServices'
-      defaultAction: 'Deny'
+      defaultAction: enableTemporaryDeploymentAccess ? 'Allow' : 'Deny'
     }
   }
 }

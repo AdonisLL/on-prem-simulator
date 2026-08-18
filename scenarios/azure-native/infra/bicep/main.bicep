@@ -46,6 +46,8 @@ param sqlImage object = {
 param autoShutdownTime string = '1900'
 param autoShutdownTimeZone string = 'UTC'
 param enableBastion bool = true
+@description('Temporarily permits authenticated deployment-time Key Vault and Storage access. Lifecycle scripts disable it after guest configuration.')
+param enableTemporaryDeploymentAccess bool = false
 
 var suffix = toLower(uniqueString(subscription().subscriptionId, resourceGroup().id, namePrefix, deploymentId))
 var names = {
@@ -86,6 +88,7 @@ module shared 'modules/shared.bicep' = {
     storageAccountName: names.storage
     vnetId: network.outputs.vnetId
     privateEndpointSubnetId: network.outputs.managementSubnetId
+    enableTemporaryDeploymentAccess: enableTemporaryDeploymentAccess
   }
 }
 

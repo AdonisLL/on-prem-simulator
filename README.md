@@ -94,7 +94,27 @@ Terraform prompts for approval unless `-AutoApprove` is supplied. Nested
 deployment performs capability/resource/media preflight before creating the
 inner estate.
 
-### Private Key Vault checkpoint
+### Temporary policy exemption and private fallback
+
+When your organization has explicitly approved the resource-group exemption
+contract, `-UseTemporaryPolicyExemption` adds `SecurityControl=Ignore` before
+policy-sensitive resource creation. Key Vault and Storage allow authenticated
+deployment access while `lab.zip` is uploaded, secrets are seeded, and guests
+are configured. A `finally` block then disables both public endpoints and
+removes the tag, or restores its previous value, on success, pause, or failure.
+
+Approved exemption example:
+
+```powershell
+.\scripts\Deploy-Lab.ps1 `
+  -Scenario AzureNative `
+  -Iac Bicep `
+  -ResourceGroupName rg-opmlab-source `
+  -Location eastus2 `
+  -UseTemporaryPolicyExemption
+```
+
+Without this switch, the secure private-only behavior remains the default.
 
 The Azure-native scenario keeps Key Vault and staging Storage private-only. If
 the deployment workstation is outside the private-link path, a Key Vault

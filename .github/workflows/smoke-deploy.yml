@@ -26,6 +26,11 @@ on:
         description: Nested media manifest path on a dedicated runner; required when configuring nested guests
         required: false
         type: string
+      use_temporary_policy_exemption:
+        description: Apply the approved SecurityControl=Ignore tag during Azure-native deployment
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -76,6 +81,12 @@ jobs:
               throw 'guest_media_manifest_path is required when configure_nested_guests is true.'
             }
             $arguments.GuestMediaManifestPath = '${{ inputs.guest_media_manifest_path }}'
+          }
+          if (
+            '${{ inputs.scenario }}' -eq 'AzureNative' -and
+            '${{ inputs.use_temporary_policy_exemption }}' -eq 'true'
+          ) {
+            $arguments.UseTemporaryPolicyExemption = $true
           }
           try {
             .\scripts\Deploy-Lab.ps1 @arguments

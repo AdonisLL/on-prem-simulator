@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.38.33.27573",
-      "templateHash": "3805875494681882430"
+      "templateHash": "11496987293788364358"
     }
   },
   "parameters": {
@@ -115,6 +115,13 @@
     "enableBastion": {
       "type": "bool",
       "defaultValue": true
+    },
+    "enableTemporaryDeploymentAccess": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Temporarily permits authenticated deployment-time Key Vault and Storage access. Lifecycle scripts disable it after guest configuration."
+      }
     }
   },
   "variables": {
@@ -671,6 +678,9 @@
           },
           "privateEndpointSubnetId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.managementSubnetId.value]"
+          },
+          "enableTemporaryDeploymentAccess": {
+            "value": "[parameters('enableTemporaryDeploymentAccess')]"
           }
         },
         "template": {
@@ -680,7 +690,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "16369835004280311170"
+              "templateHash": "16925323438290167085"
             }
           },
           "parameters": {
@@ -701,6 +711,10 @@
             },
             "privateEndpointSubnetId": {
               "type": "string"
+            },
+            "enableTemporaryDeploymentAccess": {
+              "type": "bool",
+              "defaultValue": false
             }
           },
           "resources": [
@@ -716,14 +730,14 @@
                 "enablePurgeProtection": true,
                 "enableSoftDelete": true,
                 "softDeleteRetentionInDays": 7,
-                "publicNetworkAccess": "Disabled",
+                "publicNetworkAccess": "[if(parameters('enableTemporaryDeploymentAccess'), 'Enabled', 'Disabled')]",
                 "sku": {
                   "family": "A",
                   "name": "standard"
                 },
                 "networkAcls": {
                   "bypass": "AzureServices",
-                  "defaultAction": "Deny",
+                  "defaultAction": "[if(parameters('enableTemporaryDeploymentAccess'), 'Allow', 'Deny')]",
                   "ipRules": [],
                   "virtualNetworkRules": []
                 }
@@ -812,11 +826,11 @@
                 "allowSharedKeyAccess": false,
                 "defaultToOAuthAuthentication": true,
                 "minimumTlsVersion": "TLS1_2",
-                "publicNetworkAccess": "Disabled",
+                "publicNetworkAccess": "[if(parameters('enableTemporaryDeploymentAccess'), 'Enabled', 'Disabled')]",
                 "supportsHttpsTrafficOnly": true,
                 "networkAcls": {
                   "bypass": "AzureServices",
-                  "defaultAction": "Deny"
+                  "defaultAction": "[if(parameters('enableTemporaryDeploymentAccess'), 'Allow', 'Deny')]"
                 }
               }
             },

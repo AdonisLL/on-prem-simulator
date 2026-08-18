@@ -22,6 +22,7 @@ a scenario implicitly.
 | `AdminPassword` | secure prompt | Never written to source, output, or logs |
 | `SkipGuestConfiguration` | false | Stops after infrastructure for staged recovery |
 | `AutoApprove` | false | Terraform approval remains explicit by default |
+| `UseTemporaryPolicyExemption` | false | Azure-native only; temporarily applies the approved `SecurityControl=Ignore` resource-group tag and authenticated deployment access, then locks down and restores/removes the tag in `finally` |
 
 Both scenarios use `corp.contoso.local`, NetBIOS name `CONTOSO`, deterministic
 logical host names, VM auto-shutdown, private workload access, and nonsecret
