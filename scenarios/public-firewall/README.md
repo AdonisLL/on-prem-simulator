@@ -82,4 +82,6 @@ Validation confirms:
 - the SQL public endpoint is reachable on TCP 1633 without using credentials.
 
 See `docs\architecture.md` and `docs\lifecycle.md` for the endpoint map,
-cleanup contract, and operational caveats.
+cleanup contract, and operational caveats. Follow
+`../../docs/azure-migrate-scenario-guide.md` to register the appliance and use
+the generated bulk discovery list with CSV as a backup.

@@ -22,8 +22,9 @@ flowchart LR
 ```
 
 Each role is an Azure VM with no workload public IP. Azure Migrate uses the
-physical-server workflow: it receives each source FQDN/IP explicitly or through
-the generated CSV. It does not scan the VNet.
+physical-server workflow: prefer bulk entry from the generated FQDN list and
+retain the generated CSV as a backup. It does not accept a VNet, subnet, or IP
+range to scan automatically.
 
 Default Azure subnets remain:
 
@@ -77,10 +78,10 @@ flowchart LR
 
 Azure Firewall owns three Standard public IPs so both web servers can retain
 public TCP 80 while remaining separate endpoints. SQL is presented externally
-on TCP 1633 and translated to its internal TCP 1433 listener. DNAT and NSG rules
-accept only the required deployer CIDR. VM NICs have no public IPs and RDP is
-not exposed. Workload default routes send controlled egress through the
-firewall.
+on TCP 1633 and translated to its internal TCP 1433 listener. DNAT accepts only
+the required deployer CIDR; workload NSGs accept the translated flow from Azure
+Firewall. VM NICs have no public IPs and RDP is not exposed. Workload default
+routes send controlled egress through the firewall.
 
 ## Shared logical flows
 

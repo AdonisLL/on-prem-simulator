@@ -24,7 +24,7 @@ a scenario implicitly.
 | `SkipGuestConfiguration` | false | Stops after infrastructure for staged recovery |
 | `AutoApprove` | false | Terraform approval remains explicit by default |
 | `UseTemporaryPolicyExemption` | false | Azure-native/public-firewall; temporarily applies the approved `SecurityControl=Ignore` resource-group tag and deployment access, then locks down and restores/removes the tag in `finally` |
-| `DeployerAddressPrefix` | none | Required for `PublicFirewall`; an explicit IPv4 CIDR, normally the deployer's current `/32`, used as the only public DNAT and NSG source |
+| `DeployerAddressPrefix` | none | Required for `PublicFirewall`; an explicit IPv4 CIDR, normally the deployer's current `/32`, used as the only public DNAT source |
 
 All scenarios use `corp.contoso.local`, NetBIOS name `CONTOSO`, deterministic
 logical host names, VM auto-shutdown, private workload access, and nonsecret
@@ -55,9 +55,10 @@ Standard at the ingress/egress boundary. Three firewall public IPs provide:
 - `web02`: TCP 80 to private TCP 80; and
 - `sql01`: public TCP 1633 to private TCP 1433.
 
-DNAT and NSG rules accept only `DeployerAddressPrefix`. There is no public RDP
-rule. Key Vault and Storage deployment access is temporary and restricted; the
-lifecycle cleanup restores default-deny and policy enforcement.
+DNAT rules accept only `DeployerAddressPrefix`; workload NSGs accept the
+translated flow from Azure Firewall. There is no public RDP rule. Key Vault and
+Storage deployment access is temporary and restricted; lifecycle cleanup
+restores default-deny and policy enforcement.
 
 ## Parity rules
 

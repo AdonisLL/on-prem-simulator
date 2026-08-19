@@ -5,11 +5,16 @@ param(
         Join-Path (
             Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
         ) 'artifacts\azure-migrate-source-inventory.csv'
-    )
+    ),
+    [string]$BulkOutputPath
 )
 
 $ErrorActionPreference = 'Stop'
-$records = foreach ($vmName in 'dc01', 'web01', 'web02', 'sql01') {
+$serverNames = @('dc01', 'web01', 'web02', 'sql01')
+if ([string]::IsNullOrWhiteSpace($BulkOutputPath)) {
+    $BulkOutputPath = Join-Path (Split-Path $OutputPath) 'azure-migrate-discovery-sources.txt'
+}
+$records = foreach ($vmName in $serverNames) {
     $ip = & az vm list-ip-addresses `
         --resource-group $ResourceGroupName `
         --name $vmName `
@@ -26,4 +31,6 @@ $records = foreach ($vmName in 'dc01', 'web01', 'web02', 'sql01') {
 }
 New-Item -Path (Split-Path $OutputPath) -ItemType Directory -Force | Out-Null
 $records | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
-Write-Host "Azure Migrate source inventory written to $OutputPath. Copy its values into the CSV template downloaded from the current appliance."
+$records.'Server name' | Set-Content -Path $BulkOutputPath -Encoding UTF8
+Write-Host "Azure Migrate bulk-entry sources written to $BulkOutputPath."
+Write-Host "Backup CSV source inventory written to $OutputPath. Copy its values into the CSV template downloaded from the current appliance."

@@ -10,9 +10,9 @@
 
 | Scenario | Discovery | Azure footprint | Choose when |
 |---|---|---|---|
-| `AzureNative` | Physical-server inventory with explicit FQDN/IP or CSV | Five workload VMs plus private networking | Cost and repeatability matter most |
+| `AzureNative` | Physical-server inventory with bulk FQDN entry or CSV backup | Five workload VMs plus private networking | Cost and repeatability matter most |
 | `NestedVirtualization` | Hyper-V host discovery enumerates inner VMs | One large nested-capable Hyper-V host plus private networking | Hypervisor discovery realism justifies the higher host requirements |
-| `PublicFirewall` | Physical-server inventory with explicit FQDN/IP or CSV | Five private VMs plus Azure Firewall and three public IPs | Private management connectivity is unavailable and a deployer `/32` can be allowlisted |
+| `PublicFirewall` | Physical-server inventory with bulk FQDN entry or CSV backup | Five private VMs plus Azure Firewall and three public IPs | Application ingress must be restricted to a deployer `/32` |
 
 Record the choice. Every root lifecycle command requires `-Scenario`.
 

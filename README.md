@@ -17,18 +17,22 @@ milestones.
 
 | Strategy | Azure Migrate discovery | Azure topology | Best fit |
 |---|---|---|---|
-| `AzureNative` | Physical-server workflow with explicit FQDN/IP or generated CSV | Five private Azure VMs | Lower complexity, predictable workshops, and lower host requirements |
+| `AzureNative` | Physical-server workflow with bulk FQDN entry or generated CSV backup | Five private Azure VMs | Lower complexity, predictable workshops, and lower host requirements |
 | `NestedVirtualization` | Hyper-V workflow querying the outer host to enumerate inner VMs | One large private nested-capable Hyper-V host containing all five logical VMs | Greater hypervisor-discovery realism when quota, cost, media, and policy allow it |
-| `PublicFirewall` | Physical-server workflow with explicit FQDN/IP or generated CSV | Five private VMs behind Azure Firewall with three restricted public DNAT endpoints | Environments where private connectivity is unavailable but a known deployer `/32` can be allowlisted |
+| `PublicFirewall` | Physical-server workflow with bulk FQDN entry or generated CSV backup | Five private VMs behind Azure Firewall with three restricted public DNAT endpoints | Environments where application ingress must use a known deployer `/32` |
 
 All scenarios support Bicep and Terraform. They share the application,
 database, guest configuration, participant labs, and instructor material while
 keeping scenario infrastructure and lifecycle implementation isolated.
 
 > [!IMPORTANT]
-> The Azure-native physical-server appliance does not scan a VNet. Servers must
-> be supplied explicitly. The nested scenario instead uses genuine Hyper-V host
-> discovery. Neither scenario represents a production migration topology.
+> Physical-server discovery does not accept a VNet, subnet, or IP range to
+> search automatically. Use the generated bulk FQDN list, with CSV as a backup.
+> The nested scenario instead queries the Hyper-V host inventory. None of these
+> scenarios represents a production migration topology.
+
+See [Starting Azure Migrate by scenario](docs/azure-migrate-scenario-guide.md)
+for the complete appliance registration and discovery sequence.
 
 ## Repository layout
 

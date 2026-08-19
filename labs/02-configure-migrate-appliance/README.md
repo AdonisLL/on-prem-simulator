@@ -5,23 +5,27 @@ geography, add **Discovery and assessment**, and use the discovery path that
 matches the deployed scenario. Appliance registration, project keys, and device
 sign-in are intentionally interactive and are never stored by this repository.
 
-## Azure-native: physical-server discovery
+Follow the detailed
+[scenario startup guide](../../docs/azure-migrate-scenario-guide.md). The
+summary below identifies the correct discovery model.
 
-The appliance does **not** scan the VNet. It knows only the servers added by
-FQDN/IP or imported by CSV. `migrate01` hosts the appliance and is not itself in
-the source inventory.
+## Azure-native and public-firewall: physical-server discovery
 
 1. Choose discovery for physical or other virtualized servers.
-2. Connect privately to `migrate01`.
+2. Connect to `migrate01` through the scenario's approved management path.
 3. Follow Microsoft's current
    [physical-server discovery tutorial](https://learn.microsoft.com/azure/migrate/tutorial-discover-physical).
 4. Add `CONTOSO\svc-migrate` and the separate `migrate_discovery` SQL
    credential through the approved secure handoff.
-5. Download the appliance's current CSV template.
-6. Copy values from `artifacts\azure-migrate-source-inventory.csv` into that
-   template and import it.
+5. Prefer **Add multiple items** with
+   `artifacts\azure-migrate-discovery-sources.txt`.
+6. Keep `artifacts\azure-migrate-source-inventory.csv` as the backup source for
+   the appliance's current CSV template.
 7. Keep software inventory and dependency analysis enabled and require WinRM
    HTTPS.
+
+Azure Migrate does not accept a subnet or IP range for this workflow. Both
+artifacts explicitly identify the four source servers; `migrate01` is excluded.
 
 ## Nested virtualization: Hyper-V discovery
 
@@ -44,7 +48,8 @@ HTTPS before changing security controls.
 ## Checkpoint
 
 - The appliance is registered to the intended project.
-- Azure-native lists exactly four explicitly supplied source servers.
+- Azure-native and public-firewall list exactly four explicitly supplied source
+  servers.
 - Nested virtualization shows the accepted Hyper-V host and its four source
   inner VMs.
 - Credentials pass validation.
