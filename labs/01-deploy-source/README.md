@@ -113,15 +113,36 @@ The Hyper-V provisioning phases are restartable. Follow the scenario command's
 checkpoint output if approved media or interactive appliance preparation must
 be completed before resuming.
 
+## Public firewall
+
+Review `scenarios\public-firewall\README.md` and confirm the deployer `/32`.
+
+```powershell
+.\scripts\Deploy-Lab.ps1 `
+  -Scenario PublicFirewall `
+  -Iac Bicep `
+  -ResourceGroupName rg-opmlab-public `
+  -Location eastus2 `
+  -DeployerAddressPrefix '203.0.113.10/32' `
+  -UseTemporaryPolicyExemption
+```
+
+The deployment creates no VM public IPs. Azure Firewall owns three public IPs:
+two TCP 80 endpoints for the independent IIS servers and one TCP 1633 endpoint
+translated to SQL TCP 1433. DNAT accepts only the supplied deployer prefix;
+workload NSGs accept the translated flow from Azure Firewall. The temporary
+policy tag is removed/restored and PaaS
+deployment access is returned to default-deny in cleanup.
+
 ## Validate
 
 ```powershell
 .\scripts\Test-Lab.ps1 `
-  -Scenario <AzureNative-or-NestedVirtualization> `
+  -Scenario <AzureNative-or-NestedVirtualization-or-PublicFirewall> `
   -ResourceGroupName <resource-group>
 ```
 
-For either scenario, verify both IIS sites read the shared SQL inventory, SQL
+For every scenario, verify both IIS sites read the shared SQL inventory, SQL
 contains four seeded products, synthetic traffic runs, and no workload is
 exposed through a public IP.
 

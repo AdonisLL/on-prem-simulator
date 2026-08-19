@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('AzureNative', 'NestedVirtualization')]
+    [ValidateSet('AzureNative', 'NestedVirtualization', 'PublicFirewall')]
     [string]$Scenario,
 
     [Parameter(Mandatory)]

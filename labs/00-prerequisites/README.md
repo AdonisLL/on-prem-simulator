@@ -12,6 +12,7 @@
 |---|---|---|---|
 | `AzureNative` | Physical-server inventory with explicit FQDN/IP or CSV | Five workload VMs plus private networking | Cost and repeatability matter most |
 | `NestedVirtualization` | Hyper-V host discovery enumerates inner VMs | One large nested-capable Hyper-V host plus private networking | Hypervisor discovery realism justifies the higher host requirements |
+| `PublicFirewall` | Physical-server inventory with explicit FQDN/IP or CSV | Five private VMs plus Azure Firewall and three public IPs | Private management connectivity is unavailable and a deployer `/32` can be allowlisted |
 
 Record the choice. Every root lifecycle command requires `-Scenario`.
 
@@ -59,11 +60,17 @@ disk for all five inner VMs. Prepare approved Windows guest, SQL Developer, and
 Azure Migrate appliance media as required by the scenario README. Never commit
 ISO, VHD, VHDX, or registration-key files.
 
+For `PublicFirewall`, determine the deployer's public IPv4 address through an
+approved method and append `/32`. Do not use `0.0.0.0/0`, a broad corporate
+range, or an automatically discovered address that the operator has not
+reviewed.
+
 ## Cost agreement
 
-Both scenarios generate charges. Azure-native uses five workload VMs; nested
+All scenarios generate charges. Azure-native uses five workload VMs; nested
 virtualization uses a much larger host and several inner disks. Auto-shutdown
-does not remove every charge. Record the source resource-group name and keep the
+does not remove every charge. `PublicFirewall` also incurs Azure Firewall and
+three Standard public-IP charges. Record the source resource-group name and keep the
 matching teardown command available:
 
 ```powershell

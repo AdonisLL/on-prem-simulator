@@ -1,0 +1,56 @@
+{
+  "scenario": "public-firewall",
+  "azureVmRoles": ["dc01", "web01", "web02", "sql01", "migrate01"],
+  "vmRoles": ["dc01", "web01", "web02", "sql01", "migrate01"],
+  "subnets": [
+    "AzureFirewallSubnet",
+    "management",
+    "identity",
+    "web",
+    "data",
+    "private-endpoints"
+  ],
+  "privateAddresses": {
+    "dc01": "10.50.2.4",
+    "web01": "10.50.3.4",
+    "web02": "10.50.3.5",
+    "sql01": "10.50.4.4",
+    "migrate01": "10.50.1.4"
+  },
+  "publicEndpoints": {
+    "web01": {
+      "protocol": "tcp",
+      "publicPort": 80,
+      "privatePort": 80
+    },
+    "web02": {
+      "protocol": "tcp",
+      "publicPort": 80,
+      "privatePort": 80
+    },
+    "sql01": {
+      "protocol": "tcp",
+      "publicPort": 1633,
+      "privatePort": 1433
+    }
+  },
+  "firewall": {
+    "tier": "Standard",
+    "role": "ingress-egress-boundary",
+    "publicIpConfigurations": 3
+  },
+  "requiredControls": [
+    "Azure Firewall Standard",
+    "forced-tunnel route tables",
+    "no VM public IP",
+    "no public RDP",
+    "temporary PaaS access restricted to deployer and firewall egress IPs"
+  ],
+  "sharedOutputs": [
+    "firewall",
+    "key vault",
+    "staging storage",
+    "public endpoints",
+    "private inventory"
+  ]
+}

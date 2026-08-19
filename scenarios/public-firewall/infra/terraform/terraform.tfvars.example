@@ -1,0 +1,9 @@
+name_prefix                     = "opmlab"
+location                        = "eastus2"
+resource_group_name             = "rg-opmlab-public"
+deployment_id                   = "workshop01"
+admin_username                  = "labadmin"
+deployer_address_prefix         = "203.0.113.10/32"
+enable_temporary_deployment_access = false
+
+# Pass the password through TF_VAR_admin_password; never place it in this file.

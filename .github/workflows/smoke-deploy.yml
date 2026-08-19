@@ -7,7 +7,7 @@ on:
         description: Deployment scenario
         required: true
         type: choice
-        options: [AzureNative, NestedVirtualization]
+        options: [AzureNative, NestedVirtualization, PublicFirewall]
       iac:
         description: IaC implementation
         required: true
@@ -27,10 +27,14 @@ on:
         required: false
         type: string
       use_temporary_policy_exemption:
-        description: Apply the approved SecurityControl=Ignore tag during Azure-native deployment
+        description: Apply the approved SecurityControl=Ignore tag during Azure-native/public-firewall deployment
         required: true
         type: boolean
         default: false
+      deployer_address_prefix:
+        description: Optional expected PublicFirewall runner egress /32; a mismatch fails before deployment
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -56,6 +60,10 @@ jobs:
 
       - name: Deploy and validate
         shell: pwsh
+        env:
+          DEPLOY_LOCATION: ${{ inputs.location }}
+          GUEST_MEDIA_MANIFEST_PATH: ${{ inputs.guest_media_manifest_path }}
+          EXPECTED_DEPLOYER_ADDRESS_PREFIX: ${{ inputs.deployer_address_prefix }}
         run: |
           $resourceGroup = "rg-opmlab-smoke-${{ github.run_id }}"
           $alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%*-_'
@@ -66,7 +74,7 @@ jobs:
             Scenario = '${{ inputs.scenario }}'
             Iac = '${{ inputs.iac }}'
             ResourceGroupName = $resourceGroup
-            Location = '${{ inputs.location }}'
+            Location = $env:DEPLOY_LOCATION
             AutoApprove = $true
             AdminPassword = (ConvertTo-SecureString $plainPassword -AsPlainText -Force)
           }
@@ -77,23 +85,40 @@ jobs:
             $arguments.SkipGuestConfiguration = $true
           }
           elseif ('${{ inputs.scenario }}' -eq 'NestedVirtualization') {
-            if ([string]::IsNullOrWhiteSpace('${{ inputs.guest_media_manifest_path }}')) {
+            if ([string]::IsNullOrWhiteSpace($env:GUEST_MEDIA_MANIFEST_PATH)) {
               throw 'guest_media_manifest_path is required when configure_nested_guests is true.'
             }
-            $arguments.GuestMediaManifestPath = '${{ inputs.guest_media_manifest_path }}'
+            $arguments.GuestMediaManifestPath = $env:GUEST_MEDIA_MANIFEST_PATH
           }
           if (
-            '${{ inputs.scenario }}' -eq 'AzureNative' -and
+            '${{ inputs.scenario }}' -in @('AzureNative', 'PublicFirewall') -and
             '${{ inputs.use_temporary_policy_exemption }}' -eq 'true'
           ) {
             $arguments.UseTemporaryPolicyExemption = $true
           }
+          if ('${{ inputs.scenario }}' -eq 'PublicFirewall') {
+            $runnerAddress = (Invoke-RestMethod -Uri 'https://api.ipify.org').Trim()
+            $runnerPrefix = "$runnerAddress/32"
+            if (
+              -not [string]::IsNullOrWhiteSpace($env:EXPECTED_DEPLOYER_ADDRESS_PREFIX) -and
+              $env:EXPECTED_DEPLOYER_ADDRESS_PREFIX -ne $runnerPrefix
+            ) {
+              throw "The expected deployer prefix does not match this runner's egress prefix, $runnerPrefix."
+            }
+            Write-Host "Restricting PublicFirewall deployment access to runner prefix $runnerPrefix."
+            $arguments.DeployerAddressPrefix = $runnerPrefix
+          }
           try {
             .\scripts\Deploy-Lab.ps1 @arguments
             if (-not $arguments.ContainsKey('SkipGuestConfiguration')) {
-              .\scripts\Test-Lab.ps1 `
-                -Scenario '${{ inputs.scenario }}' `
-                -ResourceGroupName $resourceGroup
+              $testArguments = @{
+                Scenario = '${{ inputs.scenario }}'
+                ResourceGroupName = $resourceGroup
+              }
+              if ('${{ inputs.scenario }}' -eq 'PublicFirewall') {
+                $testArguments.DeployerAddressPrefix = $arguments.DeployerAddressPrefix
+              }
+              .\scripts\Test-Lab.ps1 @testArguments
             }
           }
           finally {

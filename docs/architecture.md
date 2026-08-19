@@ -1,6 +1,6 @@
 # Source-estate architectures
 
-Both scenarios create the same logical source estate: `dc01`, `web01`, `web02`,
+All scenarios create the same logical source estate: `dc01`, `web01`, `web02`,
 `sql01`, and `migrate01`. They differ in where those machines run and how Azure
 Migrate discovers them.
 
@@ -63,6 +63,25 @@ nested virtualization or cannot satisfy the configured CPU, memory, disk, image,
 and quota requirements. Guest and appliance media are user-supplied approved
 inputs and are never committed to the repository.
 
+## Public-firewall scenario
+
+```mermaid
+flowchart LR
+    Operator[Allowlisted deployer /32] -->|TCP 80| Firewall[Azure Firewall Standard]
+    Operator -->|TCP 1633| Firewall
+    Firewall -->|DNAT 80| Web1[web01 private NIC]
+    Firewall -->|DNAT 80| Web2[web02 private NIC]
+    Firewall -->|DNAT 1633 to 1433| SQL[sql01 private NIC]
+    Appliance[migrate01 private NIC] -->|HTTPS egress| Firewall
+```
+
+Azure Firewall owns three Standard public IPs so both web servers can retain
+public TCP 80 while remaining separate endpoints. SQL is presented externally
+on TCP 1633 and translated to its internal TCP 1433 listener. DNAT and NSG rules
+accept only the required deployer CIDR. VM NICs have no public IPs and RDP is
+not exposed. Workload default routes send controlled egress through the
+firewall.
+
 ## Shared logical flows
 
 | Source | Destination | Ports | Reason |
@@ -91,9 +110,11 @@ interactive registration is automated.
 
 ## Cost and reliability posture
 
-Both scenarios are ephemeral workshops, not production systems. The Azure-native
+All scenarios are ephemeral workshops, not production systems. The Azure-native
 scenario incurs five VM, Bastion, NAT, disk, and related charges. The nested
 scenario reduces Azure VM count but requires a much larger nested-capable host
 and enough disks/memory for all inner VMs, including the Azure Migrate appliance.
+The public-firewall scenario adds one of the lab's largest fixed hourly costs
+plus three Standard public IPs.
 Auto-shutdown does not remove disks, networking, or other billable resources;
 resource-group teardown remains mandatory.

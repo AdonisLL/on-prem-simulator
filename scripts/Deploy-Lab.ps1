@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('AzureNative', 'NestedVirtualization')]
+    [ValidateSet('AzureNative', 'NestedVirtualization', 'PublicFirewall')]
     [string]$Scenario,
 
     [ValidateSet('Bicep', 'Terraform')]
@@ -18,7 +18,8 @@ param(
     [string]$HostVmSize = 'Standard_D32s_v5',
     [string]$HostImageUrn = 'MicrosoftWindowsServer:WindowsServer:2022-datacenter-azure-edition:latest',
     [int]$HostDataDiskSizeGb = 1024,
-    [switch]$UseTemporaryPolicyExemption
+    [switch]$UseTemporaryPolicyExemption,
+    [string]$DeployerAddressPrefix
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,14 +41,20 @@ if ($SkipGuestConfiguration) {
 if ($AutoApprove) {
     $arguments.AutoApprove = $true
 }
-if ($Scenario -eq 'AzureNative') {
+if ($Scenario -in 'AzureNative', 'PublicFirewall') {
     $arguments.SqlImageUrn = $SqlImageUrn
     if ($UseTemporaryPolicyExemption) {
         $arguments.UseTemporaryPolicyExemption = $true
     }
+    if ($Scenario -eq 'PublicFirewall') {
+        if (-not $PSBoundParameters.ContainsKey('DeployerAddressPrefix')) {
+            throw 'DeployerAddressPrefix is required for the PublicFirewall scenario.'
+        }
+        $arguments.DeployerAddressPrefix = $DeployerAddressPrefix
+    }
 } else {
     if ($UseTemporaryPolicyExemption) {
-        throw 'UseTemporaryPolicyExemption is currently supported only by the AzureNative scenario.'
+        throw 'UseTemporaryPolicyExemption is supported only by the AzureNative and PublicFirewall scenarios.'
     }
     $arguments.HostVmSize = $HostVmSize
     $arguments.HostImageUrn = $HostImageUrn

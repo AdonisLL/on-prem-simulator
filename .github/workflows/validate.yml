@@ -41,6 +41,7 @@ jobs:
           if ($failures) { throw ($failures -join [Environment]::NewLine) }
           .\scripts\Test-SqlScripts.ps1
           .\scripts\Test-IacParity.ps1
+          .\scripts\Test-PublicFirewallScenario.ps1
           .\scripts\Test-ScenarioDispatch.ps1
           .\scripts\Test-TemporaryPolicyExemption.ps1
           .\scripts\Test-SecretHygiene.ps1

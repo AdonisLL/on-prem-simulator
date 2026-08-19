@@ -19,8 +19,9 @@ milestones.
 |---|---|---|---|
 | `AzureNative` | Physical-server workflow with explicit FQDN/IP or generated CSV | Five private Azure VMs | Lower complexity, predictable workshops, and lower host requirements |
 | `NestedVirtualization` | Hyper-V workflow querying the outer host to enumerate inner VMs | One large private nested-capable Hyper-V host containing all five logical VMs | Greater hypervisor-discovery realism when quota, cost, media, and policy allow it |
+| `PublicFirewall` | Physical-server workflow with explicit FQDN/IP or generated CSV | Five private VMs behind Azure Firewall with three restricted public DNAT endpoints | Environments where private connectivity is unavailable but a known deployer `/32` can be allowlisted |
 
-Both scenarios support Bicep and Terraform. They share the application,
+All scenarios support Bicep and Terraform. They share the application,
 database, guest configuration, participant labs, and instructor material while
 keeping scenario infrastructure and lifecycle implementation isolated.
 
@@ -35,6 +36,7 @@ keeping scenario infrastructure and lifecycle implementation isolated.
 |---|---|
 | `scenarios\azure-native\` | Five-Azure-VM infrastructure, lifecycle, parity contract, and physical discovery support |
 | `scenarios\nested-virtualization\` | Hyper-V host infrastructure, inner-estate lifecycle, parity contract, and Hyper-V discovery support |
+| `scenarios\public-firewall\` | Five private VMs, Azure Firewall ingress/egress, restricted public endpoints, and physical discovery support |
 | `scripts\` | Stable root dispatchers and shared validation |
 | `src\` | Legacy ASP.NET MVC application and tests |
 | `database\` | SQL schema, seed data, and expected assessment findings |
@@ -55,6 +57,8 @@ keeping scenario infrastructure and lifecycle implementation isolated.
 - Region/SKU/image quota for the selected scenario
 - For nested virtualization, a supported nested-capable VM size and approved
   Windows, SQL Developer, and appliance media required by the scenario contract
+- For `PublicFirewall`, the deployer's current public IPv4 address expressed as
+  a `/32`; the deployment never opens the endpoints to `0.0.0.0/0`
 
 Never commit ISO/VHD media, credentials, appliance keys, local parameter files,
 Terraform state, or plans.
@@ -89,6 +93,23 @@ Nested virtualization with Terraform:
   -Location eastus2 `
   -GuestMediaManifestPath C:\LabPrivate\guest-media-manifest.json
 ```
+
+Public firewall with Bicep:
+
+```powershell
+.\scripts\Deploy-Lab.ps1 `
+  -Scenario PublicFirewall `
+  -Iac Bicep `
+  -ResourceGroupName rg-opmlab-public `
+  -Location eastus2 `
+  -DeployerAddressPrefix '203.0.113.10/32' `
+  -UseTemporaryPolicyExemption
+```
+
+The three Azure Firewall endpoints expose `web01` and `web02` on TCP 80 and
+map public TCP 1633 to `sql01` TCP 1433. Only the supplied deployer prefix is accepted by the firewall DNAT rules.
+Workload NSGs accept translated traffic from Azure Firewall, VM NICs remain
+private, and no RDP endpoint is published.
 
 Terraform prompts for approval unless `-AutoApprove` is supplied. Nested
 deployment performs capability/resource/media preflight before creating the
@@ -131,7 +152,8 @@ workstation IP, use a storage key, or mint a SAS as a workaround.
   -ResourceGroupName rg-opmlab-source
 ```
 
-Replace the scenario/resource group for nested virtualization. Then follow
+Replace the scenario/resource group and supply `-DeployerAddressPrefix` when
+validating `PublicFirewall`. Then follow
 `labs\README.md`. Appliance registration and project keys remain interactive.
 
 ## Reset and teardown
@@ -147,7 +169,8 @@ Replace the scenario/resource group for nested virtualization. Then follow
   -Confirm:$false
 ```
 
-Auto-shutdown does not remove disks, networking, Bastion, NAT, or other billable
+Auto-shutdown does not remove disks, networking, Bastion, NAT, Azure Firewall,
+or other billable
 resources. Verify resource-group deletion after every workshop. Nested
 virtualization can be especially expensive because the outer host must support
 all inner VMs, including the Azure Migrate appliance.

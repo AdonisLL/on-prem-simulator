@@ -1,13 +1,15 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('AzureNative', 'NestedVirtualization')]
+    [ValidateSet('AzureNative', 'NestedVirtualization', 'PublicFirewall')]
     [string]$Scenario,
 
     [Parameter(Mandatory)]
     [string]$ResourceGroupName,
 
-    [string]$NamePrefix = 'opmlab'
+    [string]$NamePrefix = 'opmlab',
+
+    [string]$DeployerAddressPrefix
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +18,11 @@ $scenarioScript = Get-LabScenarioScript -Scenario $Scenario -ScriptName 'Test-La
 $arguments = @{ ResourceGroupName = $ResourceGroupName }
 if ($Scenario -eq 'NestedVirtualization') {
     $arguments.NamePrefix = $NamePrefix
+} elseif ($Scenario -eq 'PublicFirewall') {
+    if (-not $PSBoundParameters.ContainsKey('DeployerAddressPrefix')) {
+        throw 'DeployerAddressPrefix is required for PublicFirewall validation.'
+    }
+    $arguments.DeployerAddressPrefix = $DeployerAddressPrefix
 }
 & $scenarioScript @arguments
 if ($LASTEXITCODE -ne 0) {

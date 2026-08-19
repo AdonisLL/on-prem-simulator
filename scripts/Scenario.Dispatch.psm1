@@ -4,7 +4,7 @@ function Get-LabScenarioScript {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('AzureNative', 'NestedVirtualization')]
+        [ValidateSet('AzureNative', 'NestedVirtualization', 'PublicFirewall')]
         [string]$Scenario,
 
         [Parameter(Mandatory)]
@@ -15,6 +15,7 @@ function Get-LabScenarioScript {
     $scenarioDirectory = switch ($Scenario) {
         'AzureNative' { 'azure-native' }
         'NestedVirtualization' { 'nested-virtualization' }
+        'PublicFirewall' { 'public-firewall' }
     }
 
     $repositoryRoot = Split-Path $PSScriptRoot -Parent

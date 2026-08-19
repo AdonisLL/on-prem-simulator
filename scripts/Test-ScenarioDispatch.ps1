@@ -7,6 +7,7 @@ Import-Module "$PSScriptRoot\Scenario.Dispatch.psm1" -Force
 $expected = @{
     AzureNative = 'scenarios\azure-native\scripts\Test-Lab.ps1'
     NestedVirtualization = 'scenarios\nested-virtualization\scripts\Test-Lab.ps1'
+    PublicFirewall = 'scenarios\public-firewall\scripts\Test-Lab.ps1'
 }
 
 foreach ($scenario in $expected.Keys) {
