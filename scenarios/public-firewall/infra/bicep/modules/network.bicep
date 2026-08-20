@@ -556,6 +556,7 @@ resource managementSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01'
 resource identitySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' = {
   parent: vnet
   name: 'identity'
+  dependsOn: [managementSubnet]
   properties: {
     addressPrefix: prefixes.identity
     networkSecurityGroup: {
@@ -571,6 +572,7 @@ resource identitySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' =
 resource webSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' = {
   parent: vnet
   name: 'web'
+  dependsOn: [identitySubnet]
   properties: {
     addressPrefix: prefixes.web
     networkSecurityGroup: {
@@ -586,6 +588,7 @@ resource webSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' = {
 resource dataSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' = {
   parent: vnet
   name: 'data'
+  dependsOn: [webSubnet]
   properties: {
     addressPrefix: prefixes.data
     networkSecurityGroup: {
@@ -601,6 +604,7 @@ resource dataSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' = {
 resource privateEndpointsSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-07-01' = {
   parent: vnet
   name: 'private-endpoints'
+  dependsOn: [dataSubnet]
   properties: {
     addressPrefix: prefixes.privateEndpoints
     defaultOutboundAccess: false

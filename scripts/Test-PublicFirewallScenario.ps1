@@ -62,6 +62,15 @@ if ($bicepNetwork -match "targetFqdns:\s*\['\*'\]") {
 if ($bicepNetwork -notmatch 'ipConfigurations:\s*\[[\s\S]*?cfg-web01[\s\S]*?cfg-web02[\s\S]*?cfg-sql01') {
     $failures.Add('Bicep does not declare three role-specific firewall public IP configurations.')
 }
+$serializedSubnetDependencies = @(
+    "identitySubnet[\s\S]*?dependsOn:\s*\[managementSubnet\]"
+    "webSubnet[\s\S]*?dependsOn:\s*\[identitySubnet\]"
+    "dataSubnet[\s\S]*?dependsOn:\s*\[webSubnet\]"
+    "privateEndpointsSubnet[\s\S]*?dependsOn:\s*\[dataSubnet\]"
+)
+if ($serializedSubnetDependencies | Where-Object { $bicepNetwork -notmatch $_ }) {
+    $failures.Add('Bicep subnet deployments are not serialized and may race on the shared VNet.')
+}
 if ($terraform -notmatch 'public_ip_configs\s*=\s*\["web01",\s*"web02",\s*"sql01"\]') {
     $failures.Add('Terraform does not declare exactly three role-specific firewall public IPs.')
 }
