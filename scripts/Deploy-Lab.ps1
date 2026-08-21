@@ -19,7 +19,9 @@ param(
     [string]$HostImageUrn = 'MicrosoftWindowsServer:WindowsServer:2022-datacenter-azure-edition:latest',
     [int]$HostDataDiskSizeGb = 1024,
     [switch]$UseTemporaryPolicyExemption,
-    [string]$DeployerAddressPrefix
+    [switch]$AllowUnrestrictedTemporaryDeploymentAccess,
+    [string]$DeployerAddressPrefix,
+    [string[]]$AdditionalDeployerAddressPrefix = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +53,12 @@ if ($Scenario -in 'AzureNative', 'PublicFirewall') {
             throw 'DeployerAddressPrefix is required for the PublicFirewall scenario.'
         }
         $arguments.DeployerAddressPrefix = $DeployerAddressPrefix
+        if ($AdditionalDeployerAddressPrefix.Count) {
+            $arguments.AdditionalDeployerAddressPrefix = $AdditionalDeployerAddressPrefix
+        }
+        if ($AllowUnrestrictedTemporaryDeploymentAccess) {
+            $arguments.AllowUnrestrictedTemporaryDeploymentAccess = $true
+        }
     }
 } else {
     if ($UseTemporaryPolicyExemption) {
@@ -62,6 +70,9 @@ if ($Scenario -in 'AzureNative', 'PublicFirewall') {
     if ($PSBoundParameters.ContainsKey('GuestMediaManifestPath')) {
         $arguments.GuestMediaManifestPath = $GuestMediaManifestPath
     }
+}
+if ($AllowUnrestrictedTemporaryDeploymentAccess -and $Scenario -ne 'PublicFirewall') {
+    throw 'AllowUnrestrictedTemporaryDeploymentAccess is supported only by the PublicFirewall scenario.'
 }
 
 if (-not $PSCmdlet.ShouldProcess(

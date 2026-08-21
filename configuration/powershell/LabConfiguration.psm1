@@ -28,6 +28,26 @@ function Wait-LabCondition {
     throw $FailureMessage
 }
 
+function Set-LabAzureDnsForwarder {
+    Import-Module DnsServer
+    Set-DnsServerForwarder -IPAddress '168.63.129.16'
+}
+
+function Get-LabPrimaryInterfaceIndex {
+    $configuration = Get-NetIPConfiguration |
+        Where-Object {
+            $_.NetAdapter.Status -eq 'Up' -and
+            $_.IPv4Address -and
+            $_.IPv4DefaultGateway
+        } |
+        Sort-Object InterfaceIndex |
+        Select-Object -First 1
+    if (-not $configuration) {
+        throw 'No active IPv4 interface with a default gateway was found.'
+    }
+    return [int]$configuration.InterfaceIndex
+}
+
 function Install-LabDomainController {
     [CmdletBinding()]
     param(
@@ -38,11 +58,12 @@ function Install-LabDomainController {
 
     Assert-Administrator
     if ((Get-CimInstance Win32_ComputerSystem).Domain -ieq $DomainName) {
+        Set-LabAzureDnsForwarder
         return
     }
 
-    $adapter = Get-NetAdapter | Where-Object Status -eq Up | Sort-Object ifIndex | Select-Object -First 1
-    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses '127.0.0.1'
+    $interfaceIndex = Get-LabPrimaryInterfaceIndex
+    Set-DnsClientServerAddress -InterfaceIndex $interfaceIndex -ServerAddresses '127.0.0.1'
     Install-WindowsFeature AD-Domain-Services, DNS -IncludeManagementTools | Out-Null
     Import-Module ADDSDeployment
     Install-ADDSForest `
@@ -52,6 +73,7 @@ function Install-LabDomainController {
         -InstallDns `
         -NoRebootOnCompletion `
         -Force
+    Set-LabAzureDnsForwarder
 }
 
 function Install-LabCertificateAuthority {
@@ -59,6 +81,7 @@ function Install-LabCertificateAuthority {
     param([Parameter(Mandatory)][string]$CommonName)
 
     Assert-Administrator
+    Set-LabAzureDnsForwarder
     if (Get-Service CertSvc -ErrorAction SilentlyContinue) {
         return
     }
@@ -103,8 +126,8 @@ function Join-LabDomain {
     )
 
     Assert-Administrator
-    $adapter = Get-NetAdapter | Where-Object Status -eq Up | Sort-Object ifIndex | Select-Object -First 1
-    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $DomainControllerIp
+    $interfaceIndex = Get-LabPrimaryInterfaceIndex
+    Set-DnsClientServerAddress -InterfaceIndex $interfaceIndex -ServerAddresses $DomainControllerIp
 
     if ((Get-CimInstance Win32_ComputerSystem).PartOfDomain) {
         return
@@ -116,11 +139,41 @@ function Join-LabDomain {
     Add-Computer -DomainName $DomainName -Credential $Credential -Force
 }
 
+function New-LabDomainAccounts {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][securestring]$WebServicePassword,
+        [Parameter(Mandatory)][securestring]$DiscoveryPassword
+    )
+
+    Assert-Administrator
+    Import-Module ActiveDirectory
+    $accounts = @(
+        @{ Name = 'Legacy Web Service'; Sam = 'svc-legacyweb'; Password = $WebServicePassword },
+        @{ Name = 'Azure Migrate Discovery'; Sam = 'svc-migrate'; Password = $DiscoveryPassword }
+    )
+    foreach ($account in $accounts) {
+        if (-not (Get-ADUser -Filter "SamAccountName -eq '$($account.Sam)'")) {
+            New-ADUser `
+                -Name $account.Name `
+                -SamAccountName $account.Sam `
+                -AccountPassword $account.Password `
+                -Enabled $true `
+                -PasswordNeverExpires $true `
+                -Description 'Ephemeral modernization lab service identity'
+        }
+    }
+    foreach ($groupName in 'Remote Management Users', 'Performance Monitor Users', 'Performance Log Users') {
+        Add-ADGroupMember -Identity $groupName -Members 'svc-migrate' -ErrorAction SilentlyContinue
+    }
+}
+
 function New-LabDiscoveryIdentity {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$SamAccountName,
         [Parameter(Mandatory)][securestring]$Password,
+        [Parameter(Mandatory)][pscredential]$Credential,
         [Parameter(Mandatory)][string[]]$ComputerName
     )
 
@@ -136,44 +189,14 @@ function New-LabDiscoveryIdentity {
             -Description 'Least-privilege account for the ephemeral modernization lab'
     }
 
-    function New-LabDomainAccounts {
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory)][securestring]$WebServicePassword,
-            [Parameter(Mandatory)][securestring]$DiscoveryPassword
-        )
-
-        Assert-Administrator
-        Import-Module ActiveDirectory
-        $accounts = @(
-            @{ Name = 'Legacy Web Service'; Sam = 'svc-legacyweb'; Password = $WebServicePassword },
-            @{ Name = 'Azure Migrate Discovery'; Sam = 'svc-migrate'; Password = $DiscoveryPassword }
-        )
-        foreach ($account in $accounts) {
-            if (-not (Get-ADUser -Filter "SamAccountName -eq '$($account.Sam)'")) {
-                New-ADUser `
-                    -Name $account.Name `
-                    -SamAccountName $account.Sam `
-                    -AccountPassword $account.Password `
-                    -Enabled $true `
-                    -PasswordNeverExpires $true `
-                    -Description 'Ephemeral modernization lab service identity'
-            }
-        }
-        foreach ($groupName in 'Remote Management Users', 'Performance Monitor Users', 'Performance Log Users') {
-            Add-ADGroupMember -Identity $groupName -Members 'svc-migrate' -ErrorAction SilentlyContinue
-        }
-    }
-
     foreach ($computer in $ComputerName) {
-        Invoke-Command -ComputerName $computer -UseSSL -ScriptBlock {
+        Invoke-Command -ComputerName $computer -UseSSL -Credential $Credential -ScriptBlock {
             param($DomainUser)
             foreach ($group in 'Remote Management Users', 'Performance Monitor Users', 'Performance Log Users') {
                 Add-LocalGroupMember -Group $group -Member $DomainUser -ErrorAction SilentlyContinue
             }
             if (Get-LocalGroup -Name 'IIS_IUSRS' -ErrorAction SilentlyContinue) {
                 Add-LocalGroupMember -Group 'IIS_IUSRS' -Member $DomainUser -ErrorAction SilentlyContinue
-                icacls.exe 'C:\Windows\System32\inetsrv\config' /grant "${DomainUser}:(OI)(CI)R" /T /C | Out-Null
             }
 
             $sid = ([Security.Principal.NTAccount]$DomainUser).Translate([Security.Principal.SecurityIdentifier]).Value
@@ -210,26 +233,57 @@ function Enable-LabWinRmHttps {
     gpupdate.exe /force | Out-Null
     certutil.exe -pulse | Out-Null
 
-    $certificate = Get-ChildItem Cert:\LocalMachine\My |
-        Where-Object {
-            $_.NotAfter -gt [DateTime]::UtcNow -and
-            $_.HasPrivateKey -and
-            $_.EnhancedKeyUsageList.ObjectId -contains '1.3.6.1.5.5.7.3.1' -and
-            $_.DnsNameList.Unicode -contains $DnsName
-        } |
-        Sort-Object NotAfter -Descending |
-        Select-Object -First 1
+    $getServerCertificate = {
+        Get-ChildItem Cert:\LocalMachine\My |
+            Where-Object {
+                $enhancedKeyUsage = $_.Extensions |
+                    Where-Object { $_.Oid.Value -eq '2.5.29.37' } |
+                    Select-Object -First 1
+                $hasServerAuthentication = $enhancedKeyUsage -and @(
+                    $enhancedKeyUsage.EnhancedKeyUsages |
+                    Where-Object { $_.Value -eq '1.3.6.1.5.5.7.3.1' }
+                ).Count -gt 0
+
+                $_.NotAfter -gt [DateTime]::UtcNow -and
+                $_.HasPrivateKey -and
+                $hasServerAuthentication -and
+                $_.DnsNameList.Unicode -contains $DnsName
+            } |
+            Sort-Object NotAfter -Descending |
+            Select-Object -First 1
+    }
+    $certificate = & $getServerCertificate
+    if (-not $certificate) {
+        Get-Certificate -Template Machine -CertStoreLocation Cert:\LocalMachine\My | Out-Null
+        Wait-LabCondition `
+            -Condition { [bool](& $getServerCertificate) } `
+            -FailureMessage "Machine certificate enrollment did not complete for $DnsName." `
+            -TimeoutSeconds 120 `
+            -IntervalSeconds 5
+        $certificate = & $getServerCertificate
+    }
     if (-not $certificate) {
         throw "No CA-issued Server Authentication certificate was found for $DnsName."
     }
 
-    $existing = Get-ChildItem WSMan:\localhost\Listener |
-        Where-Object { $_.Keys -contains 'Transport=HTTPS' }
-    if (-not $existing) {
-        New-WSManInstance `
-            -ResourceURI winrm/config/Listener `
-            -SelectorSet @{ Address = '*'; Transport = 'HTTPS' } `
-            -ValueSet @{ Hostname = $DnsName; CertificateThumbprint = $certificate.Thumbprint } | Out-Null
+    $existing = @(
+        Get-ChildItem WSMan:\localhost\Listener |
+            Where-Object { $_.Keys -contains 'Transport=HTTPS' }
+    )
+    $matchingListener = $existing | Where-Object {
+        $thumbprint = Get-ChildItem $_.PSPath |
+            Where-Object Name -eq 'CertificateThumbprint' |
+            Select-Object -ExpandProperty Value -First 1
+        $thumbprint -eq $certificate.Thumbprint
+    }
+    if (-not $matchingListener) {
+        $existing | Remove-Item -Recurse -Force
+        New-Item `
+            -Path WSMan:\localhost\Listener `
+            -Address '*' `
+            -Transport HTTPS `
+            -CertificateThumbPrint $certificate.Thumbprint `
+            -Force | Out-Null
     }
 
     Get-NetFirewallRule -DisplayName 'Azure Migrate WinRM HTTPS' -ErrorAction SilentlyContinue |
@@ -309,21 +363,57 @@ function Install-LabDatabase {
     New-NetFirewallRule -DisplayName 'Legacy Lab SQL' -Direction Inbound -Protocol TCP -LocalPort 1433 -Action Allow | Out-Null
 
     $sqlcmd = Get-Command sqlcmd.exe -ErrorAction Stop
-    $rawDisk = Get-Disk | Where-Object PartitionStyle -eq RAW | Sort-Object Number | Select-Object -First 1
-    if ($rawDisk) {
-        $rawDisk | Initialize-Disk -PartitionStyle GPT -PassThru |
-            New-Partition -DriveLetter D -UseMaximumSize |
-            Format-Volume -FileSystem NTFS -NewFileSystemLabel 'SQLData' -Confirm:$false | Out-Null
+    $dataVolume = Get-Volume |
+        Where-Object FileSystemLabel -eq 'SQLData' |
+        Select-Object -First 1
+    if (-not $dataVolume) {
+        $dataDisk = Get-Disk |
+            Where-Object {
+                -not $_.IsBoot -and
+                -not $_.IsSystem -and
+                $_.Location -match '(?i)\bLUN\s+0$'
+            } |
+            Where-Object {
+                if ($_.PartitionStyle -eq 'RAW') {
+                    return $true
+                }
+
+                $dataPartitions = @(
+                    Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue |
+                    Where-Object Type -ne 'Reserved'
+                )
+                return $dataPartitions.Count -eq 0
+            } |
+            Sort-Object Number |
+            Select-Object -First 1
+        if (-not $dataDisk) {
+            throw 'An uninitialized managed SQL data disk attached at LUN 0 was not found.'
+        }
+        if ($dataDisk.PartitionStyle -eq 'RAW') {
+            $dataDisk = $dataDisk | Initialize-Disk -PartitionStyle GPT -PassThru
+        }
+        $dataPartition = Get-Partition -DiskNumber $dataDisk.Number |
+            Where-Object Type -ne 'Reserved' |
+            Select-Object -First 1
+        if (-not $dataPartition) {
+            $dataPartition = New-Partition -DiskNumber $dataDisk.Number -AssignDriveLetter -UseMaximumSize
+        } elseif (-not $dataPartition.DriveLetter) {
+            $dataPartition | Add-PartitionAccessPath -AssignDriveLetter
+            $dataPartition = Get-Partition -DiskNumber $dataDisk.Number -PartitionNumber $dataPartition.PartitionNumber
+        }
+        $dataVolume = $dataPartition | Format-Volume -FileSystem NTFS -NewFileSystemLabel 'SQLData' -Confirm:$false
     }
-    if (Test-Path 'D:\') {
-        New-Item 'D:\SQLData', 'D:\SQLLog' -ItemType Directory -Force | Out-Null
-        icacls.exe 'D:\SQLData' /grant 'NT SERVICE\MSSQLSERVER:(OI)(CI)F' /T /C | Out-Null
-        icacls.exe 'D:\SQLLog' /grant 'NT SERVICE\MSSQLSERVER:(OI)(CI)F' /T /C | Out-Null
-        @"
-ALTER SERVER CONFIGURATION SET DEFAULT_DATA_PATH = 'D:\SQLData';
-ALTER SERVER CONFIGURATION SET DEFAULT_LOG_PATH = 'D:\SQLLog';
-"@ | & $sqlcmd.Source -S localhost -E -b
-        if ($LASTEXITCODE -ne 0) { throw 'Configuring SQL data and log paths failed.' }
+    if ($dataVolume -and $dataVolume.DriveLetter) {
+        $dataRoot = "$($dataVolume.DriveLetter):\"
+        $dataPath = Join-Path $dataRoot 'SQLData'
+        $logPath = Join-Path $dataRoot 'SQLLog'
+        New-Item $dataPath, $logPath -ItemType Directory -Force | Out-Null
+        icacls.exe $dataPath /grant 'NT SERVICE\MSSQLSERVER:(OI)(CI)F' /T /C | Out-Null
+        icacls.exe $logPath /grant 'NT SERVICE\MSSQLSERVER:(OI)(CI)F' /T /C | Out-Null
+        $instancePath = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\MSSQL13.MSSQLSERVER\MSSQLServer'
+        Set-ItemProperty -Path $instancePath -Name DefaultData -Value $dataPath
+        Set-ItemProperty -Path $instancePath -Name DefaultLog -Value $logPath
+        Restart-Service MSSQLSERVER -Force
     }
     & $sqlcmd.Source -S localhost -E -b -i $SchemaScript
     if ($LASTEXITCODE -ne 0) { throw 'The schema script failed.' }

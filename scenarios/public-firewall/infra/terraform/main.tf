@@ -1,8 +1,12 @@
 locals {
-  suffix            = substr(md5("${data.azurerm_client_config.current.subscription_id}-${var.resource_group_name}-${var.name_prefix}-${var.deployment_id}"), 0, 7)
-  key_vault         = substr("kv-${var.name_prefix}-${local.suffix}", 0, 24)
-  storage_name      = substr(replace("st${var.name_prefix}${local.suffix}", "-", ""), 0, 24)
-  deployer_ip_rule  = tonumber(split("/", var.deployer_address_prefix)[1]) == 32 ? split("/", var.deployer_address_prefix)[0] : var.deployer_address_prefix
+  suffix                    = substr(md5("${data.azurerm_client_config.current.subscription_id}-${var.resource_group_name}-${var.name_prefix}-${var.deployment_id}"), 0, 7)
+  key_vault                 = substr("kv-${var.name_prefix}-${local.suffix}", 0, 24)
+  storage_name              = substr(replace("st${var.name_prefix}${local.suffix}", "-", ""), 0, 24)
+  deployer_address_prefixes = concat([var.deployer_address_prefix], var.additional_deployer_address_prefixes)
+  deployer_ip_rules = [
+    for prefix in local.deployer_address_prefixes :
+    tonumber(split("/", prefix)[1]) == 32 ? split("/", prefix)[0] : prefix
+  ]
   workload_subnets  = [var.address_prefixes.management, var.address_prefixes.identity, var.address_prefixes.web, var.address_prefixes.data]
   public_ip_configs = ["web01", "web02", "sql01"]
 
@@ -72,7 +76,7 @@ locals {
   # Azure Firewall can SNAT outbound flows through any attached public IP, so
   # temporary public deployment access allowlists the deployer plus all three.
   temporary_deployment_public_ip_rules = concat(
-    [local.deployer_ip_rule],
+    local.deployer_ip_rules,
     [for name in local.public_ip_configs : azurerm_public_ip.firewall[name].ip_address]
   )
 }
@@ -230,7 +234,7 @@ resource "azurerm_network_security_rule" "web_public_http" {
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "80"
-  source_address_prefix       = azurerm_firewall.this.ip_configuration[0].private_ip_address
+  source_address_prefix       = var.address_prefixes.firewall
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.this.name
   network_security_group_name = azurerm_network_security_group.web.name
@@ -258,7 +262,7 @@ resource "azurerm_network_security_rule" "sql_public" {
   protocol                    = "Tcp"
   source_port_range           = "*"
   destination_port_range      = "1433"
-  source_address_prefix       = azurerm_firewall.this.ip_configuration[0].private_ip_address
+  source_address_prefix       = var.address_prefixes.firewall
   destination_address_prefix  = "*"
   resource_group_name         = azurerm_resource_group.this.name
   network_security_group_name = azurerm_network_security_group.data.name
@@ -531,7 +535,7 @@ resource "azurerm_firewall_policy_rule_collection_group" "this" {
     rule {
       name                = "web01-http"
       protocols           = ["TCP"]
-      source_addresses    = [var.deployer_address_prefix]
+      source_addresses    = local.deployer_address_prefixes
       destination_address = azurerm_public_ip.firewall["web01"].ip_address
       destination_ports   = ["80"]
       translated_address  = module.windows_vm["web01"].private_ip_address
@@ -541,7 +545,7 @@ resource "azurerm_firewall_policy_rule_collection_group" "this" {
     rule {
       name                = "web02-http"
       protocols           = ["TCP"]
-      source_addresses    = [var.deployer_address_prefix]
+      source_addresses    = local.deployer_address_prefixes
       destination_address = azurerm_public_ip.firewall["web02"].ip_address
       destination_ports   = ["80"]
       translated_address  = module.windows_vm["web02"].private_ip_address
@@ -551,7 +555,7 @@ resource "azurerm_firewall_policy_rule_collection_group" "this" {
     rule {
       name                = "sql01-dnat"
       protocols           = ["TCP"]
-      source_addresses    = [var.deployer_address_prefix]
+      source_addresses    = local.deployer_address_prefixes
       destination_address = azurerm_public_ip.firewall["sql01"].ip_address
       destination_ports   = ["1633"]
       translated_address  = module.windows_vm["sql01"].private_ip_address

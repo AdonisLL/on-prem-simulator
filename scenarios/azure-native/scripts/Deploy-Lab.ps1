@@ -249,7 +249,7 @@ try {
             $networkRuleSet = & az storage account show `
                 --resource-group $ResourceGroupName `
                 --name $storageAccount `
-                --query '{publicNetworkAccess:publicNetworkAccess, defaultAction:networkRuleSet.defaultAction, bypass:networkRuleSet.bypass, ipRules:networkRuleSet.ipRules[].value, virtualNetworkRules:networkRuleSet.virtualNetworkRules[].virtualNetworkResourceId}' `
+                --query '{publicNetworkAccess:publicNetworkAccess, defaultAction:networkRuleSet.defaultAction, bypass:networkRuleSet.bypass, ipRules:networkRuleSet.ipRules[].ipAddressOrRange, virtualNetworkRules:networkRuleSet.virtualNetworkRules[].virtualNetworkResourceId}' `
                 --output json `
                 --only-show-errors
             throw "Artifact upload failed after waiting for Storage Blob Data Contributor propagation. Azure CLI error: $uploadError Storage network configuration: $networkRuleSet"

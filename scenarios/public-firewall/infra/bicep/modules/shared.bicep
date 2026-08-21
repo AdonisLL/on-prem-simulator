@@ -5,12 +5,14 @@ param storageAccountName string
 param vnetId string
 param privateEndpointSubnetId string
 param enableTemporaryDeploymentAccess bool = false
-param deployerAddressPrefix string
+param deployerAddressPrefixes array
 param firewallEgressPublicIpAddresses array
 
 var allowedPublicSources = enableTemporaryDeploymentAccess
-  ? concat([deployerAddressPrefix], firewallEgressPublicIpAddresses)
+  ? concat(deployerAddressPrefixes, firewallEgressPublicIpAddresses)
   : []
+// Storage rejects /32 CIDRs and requires single-host rules as bare IPv4 addresses.
+var storageAllowedPublicSources = [for source in allowedPublicSources: endsWith(source, '/32') ? split(source, '/')[0] : source]
 
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: keyVaultName
@@ -110,7 +112,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     networkAcls: {
       bypass: 'None'
       defaultAction: 'Deny'
-      ipRules: [for source in allowedPublicSources: {
+      ipRules: [for source in storageAllowedPublicSources: {
         action: 'Allow'
         value: source
       }]

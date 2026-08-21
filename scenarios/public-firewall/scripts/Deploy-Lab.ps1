@@ -9,7 +9,9 @@ param(
     [switch]$SkipGuestConfiguration,
     [switch]$AutoApprove,
     [Parameter(Mandatory)][string]$DeployerAddressPrefix,
+    [string[]]$AdditionalDeployerAddressPrefix = @(),
     [switch]$AllowNon32DeployerPrefix,
+    [switch]$AllowUnrestrictedTemporaryDeploymentAccess,
     [switch]$UseTemporaryPolicyExemption = $true
 )
 
@@ -37,6 +39,16 @@ if (-not (Test-Path $infrastructurePath -PathType Leaf)) {
 $DeployerAddressPrefix = Assert-LabIpv4Cidr `
     -AddressPrefix $DeployerAddressPrefix `
     -AllowNon32:$AllowNon32DeployerPrefix
+$AdditionalDeployerAddressPrefix = @(
+    $AdditionalDeployerAddressPrefix | ForEach-Object {
+        Assert-LabIpv4Cidr -AddressPrefix $_ -AllowNon32:$AllowNon32DeployerPrefix
+    }
+)
+$deployerAddressPrefixes = @($DeployerAddressPrefix) + @($AdditionalDeployerAddressPrefix) |
+    Sort-Object -Unique
+if ($AllowUnrestrictedTemporaryDeploymentAccess -and -not $UseTemporaryPolicyExemption) {
+    throw 'AllowUnrestrictedTemporaryDeploymentAccess requires UseTemporaryPolicyExemption so Azure Policy does not force public access back to Disabled.'
+}
 
 $account = & az account show --query id --output tsv --only-show-errors
 if ($LASTEXITCODE -ne 0 -or -not $account) {
@@ -139,6 +151,7 @@ try {
                     adminPassword                  = @{ value = $plainAdminPassword }
                     sqlImage                       = @{ value = $sqlImage }
                     deployerAddressPrefix          = @{ value = $DeployerAddressPrefix }
+                    additionalDeployerAddressPrefixes = @{ value = @($AdditionalDeployerAddressPrefix) }
                     enableTemporaryDeploymentAccess = @{ value = [bool]$UseTemporaryPolicyExemption }
                 }
             } | ConvertTo-Json -Depth 8 | Set-Content -Path $parameterFile -Encoding UTF8
@@ -179,6 +192,7 @@ try {
                 "-var=name_prefix=$NamePrefix"
                 "-var=deployment_id=$deploymentId"
                 "-var=deployer_address_prefix=$DeployerAddressPrefix"
+                "-var=additional_deployer_address_prefixes=$(ConvertTo-Json -InputObject @($AdditionalDeployerAddressPrefix) -Compress)"
                 "-var=enable_temporary_deployment_access=$temporaryAccessValue"
                 '-input=false'
             )
@@ -218,10 +232,10 @@ try {
         -VmPrivateIpMap $privateIpMap
     Assert-LabFirewallEndpointContract `
         -FirewallData $firewallData `
-        -DeployerAddressPrefix $DeployerAddressPrefix
+        -DeployerAddressPrefixes $deployerAddressPrefixes
 
     $expectedDeploymentSources = Get-LabExpectedDeploymentAccessSources `
-        -DeployerAddressPrefix $DeployerAddressPrefix `
+        -DeployerAddressPrefixes $deployerAddressPrefixes `
         -FirewallData $firewallData
 
     $keyVaultNetworkRules = Get-LabKeyVaultNetworkRules `
@@ -252,52 +266,175 @@ try {
         -RoleDefinitionName 'Storage Blob Data Contributor' `
         -Scope $storageId
 
-    $artifactUploaded = $false
-    $uploadError = $null
-    for ($attempt = 1; $attempt -le 20; $attempt++) {
-        $uploadError = & az storage blob upload `
-            --account-name $storageAccount `
-            --container-name artifacts `
-            --name lab.zip `
-            --file $artifacts.LabArchive `
-            --auth-mode login `
-            --overwrite true `
-            --only-show-errors `
-            --output none 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $artifactUploaded = $true
-            break
-        }
+    $isNetworkRuleRejection = {
+        param($Details)
 
-        if ($attempt -lt 20) {
-            Write-Host "Artifact upload is not available yet; retrying in 15 seconds ($attempt/20)."
-            Start-Sleep -Seconds 15
-        }
-    }
-    if (-not $artifactUploaded) {
-        throw "Artifact upload failed after waiting for Storage Blob Data Contributor propagation. Azure CLI error: $uploadError"
+        return [bool](
+            ([string]($Details -join [Environment]::NewLine)) -match
+            '(?i)blocked by network rules|network rule set|networkRuleSet|configured (?:Storage )?IP rules|public network access|ForbiddenByFirewall|client address is not authorized'
+        )
     }
 
-    Set-LabKeyVaultSecretFromMemory `
-        -VaultName $keyVault `
-        -Name 'admin-password' `
-        -Value $plainAdminPassword `
-        -ScratchRoot $scratchRoot
-    Set-LabKeyVaultSecretFromMemory `
-        -VaultName $keyVault `
-        -Name 'web-service-password' `
-        -Value $servicePassword `
-        -ScratchRoot $scratchRoot
-    Set-LabKeyVaultSecretFromMemory `
-        -VaultName $keyVault `
-        -Name 'migrate-discovery-password' `
-        -Value $discoveryPassword `
-        -ScratchRoot $scratchRoot
-    Set-LabKeyVaultSecretFromMemory `
-        -VaultName $keyVault `
-        -Name 'sql-discovery-password' `
-        -Value $sqlDiscoveryPassword `
-        -ScratchRoot $scratchRoot
+    $storageAccessWidened = $false
+    try {
+        $enableUnrestrictedStorageAccess = {
+            param([string]$Reason)
+
+            Write-Warning "Temporarily allowing authenticated Storage access from all public networks $Reason. Access will be disabled immediately after upload."
+            & az storage account update `
+                --resource-group $ResourceGroupName `
+                --name $storageAccount `
+                --public-network-access Enabled `
+                --default-action Allow `
+                --output none `
+                --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to enable temporary unrestricted access on Storage account $storageAccount."
+            }
+            return $true
+        }
+
+        if ($AllowUnrestrictedTemporaryDeploymentAccess) {
+            $storageAccessWidened = & $enableUnrestrictedStorageAccess 'because the fallback was explicitly requested'
+        }
+
+        $artifactUploaded = $false
+        $uploadError = $null
+        for ($attempt = 1; $attempt -le 20; $attempt++) {
+            $uploadError = & az storage blob upload `
+                --account-name $storageAccount `
+                --container-name artifacts `
+                --name lab.zip `
+                --file $artifacts.LabArchive `
+                --auth-mode login `
+                --overwrite true `
+                --only-show-errors `
+                --output none 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                $artifactUploaded = $true
+                break
+            }
+
+            $ambiguousAuthorizationFailure = (
+                $attempt -ge 10 -and
+                ([string]($uploadError -join [Environment]::NewLine)) -match '(?i)\bAuthorizationFailure\b'
+            )
+            if (
+                -not $storageAccessWidened -and
+                $UseTemporaryPolicyExemption -and
+                (
+                    (& $isNetworkRuleRejection $uploadError) -or
+                    $ambiguousAuthorizationFailure
+                )
+            ) {
+                $reason = if ($ambiguousAuthorizationFailure) {
+                    'after restricted RBAC retries continued to return AuthorizationFailure'
+                } else {
+                    'after the configured IP rules rejected this runner'
+                }
+                $storageAccessWidened = & $enableUnrestrictedStorageAccess $reason
+            }
+
+            if ($attempt -lt 20) {
+                Write-Host "Artifact upload is not available yet; retrying in 15 seconds ($attempt/20)."
+                Start-Sleep -Seconds 15
+            }
+        }
+        if (-not $artifactUploaded) {
+            $fallbackHint = if ($UseTemporaryPolicyExemption) {
+                ''
+            } else {
+                ' Re-run with -UseTemporaryPolicyExemption so the script can use its authenticated data-plane fallback.'
+            }
+            throw "Artifact upload failed after waiting for Storage Blob Data Contributor propagation.$fallbackHint Azure CLI error: $uploadError"
+        }
+    } finally {
+        if ($storageAccessWidened) {
+            & az storage account update `
+                --resource-group $ResourceGroupName `
+                --name $storageAccount `
+                --public-network-access Disabled `
+                --default-action Deny `
+                --output none `
+                --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+                $cleanupFailures.Add("Failed to disable unrestricted public access on Storage account $storageAccount after artifact upload.")
+            }
+        }
+    }
+
+    $keyVaultAccessWidened = $false
+    try {
+        $enableUnrestrictedKeyVaultAccess = {
+            Write-Warning 'Temporarily allowing authenticated Key Vault access from all public networks. Access will be disabled immediately after secret bootstrap.'
+            & az keyvault update `
+                --resource-group $ResourceGroupName `
+                --name $keyVault `
+                --public-network-access Enabled `
+                --default-action Allow `
+                --output none `
+                --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to enable temporary unrestricted access on Key Vault $keyVault."
+            }
+            return $true
+        }
+
+        if ($AllowUnrestrictedTemporaryDeploymentAccess) {
+            $keyVaultAccessWidened = & $enableUnrestrictedKeyVaultAccess
+        }
+
+        $setKeyVaultSecrets = {
+            Set-LabKeyVaultSecretFromMemory `
+                -VaultName $keyVault `
+                -Name 'admin-password' `
+                -Value $plainAdminPassword `
+                -ScratchRoot $scratchRoot
+            Set-LabKeyVaultSecretFromMemory `
+                -VaultName $keyVault `
+                -Name 'web-service-password' `
+                -Value $servicePassword `
+                -ScratchRoot $scratchRoot
+            Set-LabKeyVaultSecretFromMemory `
+                -VaultName $keyVault `
+                -Name 'migrate-discovery-password' `
+                -Value $discoveryPassword `
+                -ScratchRoot $scratchRoot
+            Set-LabKeyVaultSecretFromMemory `
+                -VaultName $keyVault `
+                -Name 'sql-discovery-password' `
+                -Value $sqlDiscoveryPassword `
+                -ScratchRoot $scratchRoot
+        }
+
+        try {
+            & $setKeyVaultSecrets
+        } catch {
+            if (
+                $keyVaultAccessWidened -or
+                -not $UseTemporaryPolicyExemption -or
+                -not (& $isNetworkRuleRejection $_.Exception.Message)
+            ) {
+                throw
+            }
+
+            $keyVaultAccessWidened = & $enableUnrestrictedKeyVaultAccess
+            & $setKeyVaultSecrets
+        }
+    } finally {
+        if ($keyVaultAccessWidened) {
+            & az keyvault update `
+                --resource-group $ResourceGroupName `
+                --name $keyVault `
+                --public-network-access Disabled `
+                --default-action Deny `
+                --output none `
+                --only-show-errors
+            if ($LASTEXITCODE -ne 0) {
+                $cleanupFailures.Add("Failed to disable unrestricted public access on Key Vault $keyVault after secret bootstrap.")
+            }
+        }
+    }
 
     foreach ($vmName in Get-LabScenarioVmNames) {
         $principalId = & az vm identity show `

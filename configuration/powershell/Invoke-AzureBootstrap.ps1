@@ -18,8 +18,14 @@ $content = Join-Path $root 'content'
 New-Item -Path $root -ItemType Directory -Force | Out-Null
 
 if ($Role -eq 'DomainController') {
-    $adapter = Get-NetAdapter | Where-Object Status -eq Up | Sort-Object ifIndex | Select-Object -First 1
-    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses '168.63.129.16'
+    $interface = Get-NetIPConfiguration |
+        Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address -and $_.IPv4DefaultGateway } |
+        Sort-Object InterfaceIndex |
+        Select-Object -First 1
+    if (-not $interface) {
+        throw 'No active IPv4 interface with a default gateway was found.'
+    }
+    Set-DnsClientServerAddress -InterfaceIndex $interface.InterfaceIndex -ServerAddresses '168.63.129.16'
 }
 
 function Get-ManagedIdentityToken {
@@ -35,7 +41,7 @@ function Get-KeyVaultSecretValue {
     $token = Get-ManagedIdentityToken -Resource 'https://vault.azure.net'
     (Invoke-RestMethod `
         -Headers @{ Authorization = "Bearer $token" } `
-        -Uri "https://$KeyVaultName.vault.azure.net/secrets/$Name?api-version=7.4").value
+        -Uri "https://$KeyVaultName.vault.azure.net/secrets/${Name}?api-version=7.4").value
 }
 
 if ($ArtifactSource -eq 'Storage') {
@@ -60,6 +66,7 @@ Expand-Archive -Path $archive -DestinationPath $content -Force
 $invoke = Join-Path $content 'configuration\powershell\Invoke-RoleConfiguration.ps1'
 $adminPassword = ConvertTo-SecureString (Get-KeyVaultSecretValue 'admin-password') -AsPlainText -Force
 $domainCredential = [pscredential]::new("$NetbiosName\labadmin", $adminPassword)
+$localAdministratorCredential = [pscredential]::new("$env:COMPUTERNAME\labadmin", $adminPassword)
 $arguments = @{
     Role               = $Role
     DomainName         = $DomainName
@@ -75,6 +82,7 @@ switch ($Role) {
         $arguments.DiscoveryPassword = ConvertTo-SecureString (Get-KeyVaultSecretValue 'migrate-discovery-password') -AsPlainText -Force
     }
     'DiscoveryAccess' {
+        $arguments.DomainCredential = $domainCredential
         $arguments.DiscoveryPassword = ConvertTo-SecureString (Get-KeyVaultSecretValue 'migrate-discovery-password') -AsPlainText -Force
         $arguments.ComputerName = $ComputerNamesCsv -split ','
     }
@@ -92,4 +100,29 @@ switch ($Role) {
     }
 }
 
-& $invoke @arguments
+if ($Role -in 'Sql', 'SqlDiscovery') {
+    $invokeParameters = @{
+        ComputerName   = 'localhost'
+        Credential     = $localAdministratorCredential
+        Authentication = 'Negotiate'
+        ScriptBlock    = {
+            param($ScriptPath, $ScriptArguments)
+            & $ScriptPath @ScriptArguments
+        }
+        ArgumentList   = @($invoke, $arguments)
+    }
+    $listeners = Get-ChildItem WSMan:\localhost\Listener
+    $httpListener = $listeners | Where-Object { $_.Keys -contains 'Transport=HTTP' }
+    $httpsListener = $listeners | Where-Object { $_.Keys -contains 'Transport=HTTPS' }
+    if (-not $httpListener -and $httpsListener) {
+        $invokeParameters.UseSSL = $true
+        $invokeParameters.SessionOption = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+    }
+    Invoke-Command @invokeParameters
+    if ($Role -eq 'Sql') {
+        Import-Module (Join-Path $content 'configuration\powershell\LabConfiguration.psm1') -Force
+        Enable-LabWinRmHttps -DnsName "$env:COMPUTERNAME.$DomainName"
+    }
+} else {
+    & $invoke @arguments
+}

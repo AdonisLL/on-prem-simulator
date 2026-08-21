@@ -36,7 +36,7 @@ variable "tags" {
 
 variable "deployer_address_prefix" {
   type        = string
-  description = "IPv4 CIDR used as the only allowed public DNAT and workload NSG source. A /32 is expected."
+  description = "Primary IPv4 CIDR allowed by public DNAT. A /32 is expected."
 
   validation {
     condition = (
@@ -45,6 +45,22 @@ variable "deployer_address_prefix" {
       can(tonumber(split("/", var.deployer_address_prefix)[1]))
     )
     error_message = "deployer_address_prefix must be a valid IPv4 CIDR such as 203.0.113.10/32."
+  }
+}
+
+variable "additional_deployer_address_prefixes" {
+  type        = list(string)
+  description = "Additional explicit IPv4 CIDRs for runners with destination-specific Azure egress."
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for prefix in var.additional_deployer_address_prefixes :
+      can(cidrhost(prefix, 0)) &&
+      length(split(".", split("/", prefix)[0])) == 4 &&
+      can(tonumber(split("/", prefix)[1]))
+    ])
+    error_message = "additional_deployer_address_prefixes must contain valid IPv4 CIDRs."
   }
 }
 

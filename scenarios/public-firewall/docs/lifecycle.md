@@ -1,7 +1,7 @@
 # Public firewall lifecycle contract
 
 `Deploy-Lab.ps1` accepts the shared deployment parameters plus mandatory
-`DeployerAddressPrefix`.
+`DeployerAddressPrefix` plus optional `AdditionalDeployerAddressPrefix` values.
 
 ## Address validation
 
@@ -9,6 +9,9 @@
 - `/32` is enforced by default.
 - A broader CIDR is allowed only when `-AllowNon32DeployerPrefix` is provided
   explicitly to the scenario-local deploy or test script.
+- Additional prefixes are explicit and receive the same validation as the
+  primary prefix. They support managed runners whose Azure-bound and general
+  internet traffic use different egress addresses.
 - The lifecycle never auto-discovers or silently widens the deployer address.
 
 ## Temporary deployment access

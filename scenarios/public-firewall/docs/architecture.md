@@ -9,14 +9,17 @@ All VM NICs stay private. Azure Firewall Standard owns the only public ingress.
 | `web02` TCP 80 | public TCP 80 -> `web02` private TCP 80 | Independent IIS endpoint |
 | `sql01` TCP 1633 | public TCP 1633 -> `sql01` private TCP 1433 | External SQL reachability check without exposing 1433 directly |
 
-Only `DeployerAddressPrefix` is accepted on the firewall DNAT rules. There is
-no public RDP rule and no VM public IP.
+Only the primary `DeployerAddressPrefix` and any explicitly supplied
+`AdditionalDeployerAddressPrefix` values are accepted on the firewall DNAT
+rules. Backend NSGs trust the Azure Firewall subnet because DNAT applies SNAT
+with a firewall instance address. There is no public RDP rule and no VM public
+IP.
 
 Azure Firewall is also the controlled egress path used while guest bootstrap
 downloads `lab.zip` from Storage and reads secrets from Key Vault. Those PaaS
 network ACLs are limited to:
 
-- the explicit deployer CIDR; and
+- the explicit deployer CIDRs; and
 - the Azure Firewall public IP addresses.
 
 This topology is intentionally more expensive than the private-only Azure-native

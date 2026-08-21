@@ -37,8 +37,14 @@ switch ($Role) {
         New-LabDomainAccounts -WebServicePassword $WebServicePassword -DiscoveryPassword $DiscoveryPassword
     }
     'DiscoveryAccess' {
-        if (-not $DiscoveryPassword -or -not $ComputerName) { throw 'DiscoveryPassword and ComputerName are required.' }
-        New-LabDiscoveryIdentity -SamAccountName 'svc-migrate' -Password $DiscoveryPassword -ComputerName $ComputerName
+        if (-not $DiscoveryPassword -or -not $DomainCredential -or -not $ComputerName) {
+            throw 'DiscoveryPassword, DomainCredential, and ComputerName are required.'
+        }
+        New-LabDiscoveryIdentity `
+            -SamAccountName 'svc-migrate' `
+            -Password $DiscoveryPassword `
+            -Credential $DomainCredential `
+            -ComputerName $ComputerName
     }
     'DomainMember' {
         if (-not $DomainCredential) { throw 'DomainCredential is required.' }
@@ -52,7 +58,6 @@ switch ($Role) {
     'Sql' {
         if (-not $SchemaScript -or -not $SeedScript) { throw 'SchemaScript and SeedScript are required.' }
         Install-LabDatabase -SchemaScript $SchemaScript -SeedScript $SeedScript -WebServiceAccount "$NetbiosName\svc-legacyweb"
-        Enable-LabWinRmHttps -DnsName "$env:COMPUTERNAME.$DomainName"
     }
     'SqlDiscovery' {
         if (-not $SqlDiscoveryPassword) { throw 'SqlDiscoveryPassword is required.' }

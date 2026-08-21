@@ -2,7 +2,7 @@ param location string
 param tags object
 param names object
 param prefixes object
-param deployerAddressPrefix string
+param deployerAddressPrefixes array
 param privateAddresses object
 
 resource web01PublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = {
@@ -120,7 +120,7 @@ resource firewall 'Microsoft.Network/azureFirewalls@2024-07-01' = {
             {
               name: 'web01-http'
               description: 'Restrict public HTTP to web01 to the explicit deployer CIDR.'
-              sourceAddresses: [deployerAddressPrefix]
+              sourceAddresses: deployerAddressPrefixes
               destinationAddresses: [web01PublicIp.properties.ipAddress]
               destinationPorts: ['80']
               translatedAddress: privateAddresses.web01
@@ -130,7 +130,7 @@ resource firewall 'Microsoft.Network/azureFirewalls@2024-07-01' = {
             {
               name: 'web02-http'
               description: 'Restrict public HTTP to web02 to the explicit deployer CIDR.'
-              sourceAddresses: [deployerAddressPrefix]
+              sourceAddresses: deployerAddressPrefixes
               destinationAddresses: [web02PublicIp.properties.ipAddress]
               destinationPorts: ['80']
               translatedAddress: privateAddresses.web02
@@ -140,7 +140,7 @@ resource firewall 'Microsoft.Network/azureFirewalls@2024-07-01' = {
             {
               name: 'sql01-tcp'
               description: 'Restrict public SQL access to sql01 to the explicit deployer CIDR.'
-              sourceAddresses: [deployerAddressPrefix]
+              sourceAddresses: deployerAddressPrefixes
               destinationAddresses: [sqlPublicIp.properties.ipAddress]
               destinationPorts: ['1633']
               translatedAddress: privateAddresses.sql01
@@ -412,7 +412,8 @@ resource webNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = {
           access: 'Allow'
           direction: 'Inbound'
           protocol: 'Tcp'
-          sourceAddressPrefix: firewallPrivateIpAddress
+          // DNAT applies SNAT with an Azure Firewall backend instance address.
+          sourceAddressPrefix: prefixes.firewall
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '80'
@@ -472,8 +473,7 @@ resource dataNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = {
   location: location
   tags: tags
   properties: {
-    // Azure Firewall DNAT SNATs inbound sessions to the firewall private IP, so
-    // the workload NSG must trust the firewall source rather than the external client.
+    // Azure Firewall DNAT applies SNAT with an address from AzureFirewallSubnet.
     securityRules: [
       {
         name: 'AllowSqlFromFirewallDnat'
@@ -482,7 +482,7 @@ resource dataNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = {
           access: 'Allow'
           direction: 'Inbound'
           protocol: 'Tcp'
-          sourceAddressPrefix: firewallPrivateIpAddress
+          sourceAddressPrefix: prefixes.firewall
           sourcePortRange: '*'
           destinationAddressPrefix: '*'
           destinationPortRange: '1433'

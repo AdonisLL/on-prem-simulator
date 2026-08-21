@@ -20,6 +20,9 @@ param tags object = {
 @description('Required deployer IPv4 CIDR. A /32 is expected and becomes the only public DNAT source.')
 param deployerAddressPrefix string
 
+@description('Additional explicit IPv4 CIDRs used by runners whose Azure-bound traffic exits through different addresses than general internet traffic.')
+param additionalDeployerAddressPrefixes array = []
+
 @description('Applies the approved SecurityControl=Ignore tagging contract to scenario resources. Lifecycle automation is expected to tag the resource group separately when the exemption path is used.')
 param enablePolicyExemption bool = false
 
@@ -68,6 +71,12 @@ var deployerAddressCidr = contains(deployerAddressPrefix, ':')
   ? fail('deployerAddressPrefix must be an IPv4 CIDR, typically /32.')
   : parseCidr(deployerAddressPrefix)
 var validatedDeployerAddressPrefix = '${deployerAddressCidr.network}/${deployerAddressCidr.cidr}'
+var validatedAdditionalDeployerAddressPrefixes = [
+  for addressPrefix in additionalDeployerAddressPrefixes: contains(addressPrefix, ':')
+    ? fail('additionalDeployerAddressPrefixes entries must be IPv4 CIDRs.')
+    : '${parseCidr(addressPrefix).network}/${parseCidr(addressPrefix).cidr}'
+]
+var validatedDeployerAddressPrefixes = concat([validatedDeployerAddressPrefix], validatedAdditionalDeployerAddressPrefixes)
 var vmRoles = [
   'dc01'
   'web01'
@@ -109,7 +118,7 @@ module network 'modules/network.bicep' = {
       data: dataSubnetPrefix
       privateEndpoints: privateEndpointSubnetPrefix
     }
-    deployerAddressPrefix: validatedDeployerAddressPrefix
+    deployerAddressPrefixes: validatedDeployerAddressPrefixes
     privateAddresses: privateAddresses
   }
 }
@@ -124,7 +133,7 @@ module shared 'modules/shared.bicep' = {
     vnetId: network.outputs.vnetId
     privateEndpointSubnetId: network.outputs.privateEndpointsSubnetId
     enableTemporaryDeploymentAccess: enableTemporaryDeploymentAccess
-    deployerAddressPrefix: validatedDeployerAddressPrefix
+    deployerAddressPrefixes: validatedDeployerAddressPrefixes
     firewallEgressPublicIpAddresses: network.outputs.firewallEgressPublicIpAddresses
   }
 }
@@ -232,6 +241,7 @@ output azureVmRoles array = vmRoles
 output vmRoles array = vmRoles
 output subnets array = network.outputs.subnetNames
 output deployerAddressPrefix string = validatedDeployerAddressPrefix
+output deployerAddressPrefixes array = validatedDeployerAddressPrefixes
 output vnetId string = network.outputs.vnetId
 output firewall object = {
   id: network.outputs.firewallId
@@ -251,7 +261,7 @@ output publicEndpoints object = {
     address: network.outputs.firewallPublicIpAddresses.web01
     port: 80
     url: 'http://${network.outputs.firewallPublicIpAddresses.web01}'
-    sourceAddressPrefix: validatedDeployerAddressPrefix
+    sourceAddressPrefixes: validatedDeployerAddressPrefixes
     translatedAddress: privateAddresses.web01
     translatedPort: 80
   }
@@ -260,7 +270,7 @@ output publicEndpoints object = {
     address: network.outputs.firewallPublicIpAddresses.web02
     port: 80
     url: 'http://${network.outputs.firewallPublicIpAddresses.web02}'
-    sourceAddressPrefix: validatedDeployerAddressPrefix
+    sourceAddressPrefixes: validatedDeployerAddressPrefixes
     translatedAddress: privateAddresses.web02
     translatedPort: 80
   }
@@ -268,7 +278,7 @@ output publicEndpoints object = {
     protocol: 'tcp'
     address: network.outputs.firewallPublicIpAddresses.sql01
     port: 1633
-    sourceAddressPrefix: validatedDeployerAddressPrefix
+    sourceAddressPrefixes: validatedDeployerAddressPrefixes
     translatedAddress: privateAddresses.sql01
     translatedPort: 1433
   }

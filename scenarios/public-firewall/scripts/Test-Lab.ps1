@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)][string]$ResourceGroupName,
     [Parameter(Mandatory)][string]$DeployerAddressPrefix,
+    [string[]]$AdditionalDeployerAddressPrefix = @(),
     [switch]$AllowNon32DeployerPrefix
 )
 
@@ -12,6 +13,11 @@ Import-Module "$PSScriptRoot\Lab.Common.psm1" -Force
 $DeployerAddressPrefix = Assert-LabIpv4Cidr `
     -AddressPrefix $DeployerAddressPrefix `
     -AllowNon32:$AllowNon32DeployerPrefix
+$AdditionalDeployerAddressPrefix = @(
+    $AdditionalDeployerAddressPrefix | ForEach-Object {
+        Assert-LabIpv4Cidr -AddressPrefix $_ -AllowNon32:$AllowNon32DeployerPrefix
+    }
+)
 
 $failures = [Collections.Generic.List[string]]::new()
 $expectedVmNames = Get-LabScenarioVmNames
@@ -42,7 +48,7 @@ try {
         -VmPrivateIpMap $privateIpMap
     Assert-LabFirewallEndpointContract `
         -FirewallData $firewallData `
-        -DeployerAddressPrefix $DeployerAddressPrefix
+        -DeployerAddressPrefixes (@($DeployerAddressPrefix) + @($AdditionalDeployerAddressPrefix))
 } catch {
     $failures.Add($_.Exception.Message)
 }

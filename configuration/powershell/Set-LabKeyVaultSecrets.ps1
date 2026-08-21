@@ -40,8 +40,14 @@ function Set-LabSecret {
     }
 }
 
-$adapter = Get-NetAdapter | Where-Object Status -eq Up | Sort-Object ifIndex | Select-Object -First 1
-Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses '168.63.129.16'
+$interface = Get-NetIPConfiguration |
+    Where-Object { $_.NetAdapter.Status -eq 'Up' -and $_.IPv4Address -and $_.IPv4DefaultGateway } |
+    Sort-Object InterfaceIndex |
+    Select-Object -First 1
+if (-not $interface) {
+    throw 'No active IPv4 interface with a default gateway was found.'
+}
+Set-DnsClientServerAddress -InterfaceIndex $interface.InterfaceIndex -ServerAddresses '168.63.129.16'
 $vaultAddresses = [Net.Dns]::GetHostAddresses("$KeyVaultName.vault.azure.net")
 $hasPrivateAddress = $vaultAddresses | Where-Object {
     $_.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and (

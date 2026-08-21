@@ -9,7 +9,8 @@ param(
 
     [string]$NamePrefix = 'opmlab',
 
-    [string]$DeployerAddressPrefix
+    [string]$DeployerAddressPrefix,
+    [string[]]$AdditionalDeployerAddressPrefix = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,6 +24,9 @@ if ($Scenario -eq 'NestedVirtualization') {
         throw 'DeployerAddressPrefix is required for PublicFirewall validation.'
     }
     $arguments.DeployerAddressPrefix = $DeployerAddressPrefix
+    if ($AdditionalDeployerAddressPrefix.Count) {
+        $arguments.AdditionalDeployerAddressPrefix = $AdditionalDeployerAddressPrefix
+    }
 }
 & $scenarioScript @arguments
 if ($LASTEXITCODE -ne 0) {

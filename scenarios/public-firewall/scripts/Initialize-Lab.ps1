@@ -26,7 +26,7 @@ Invoke-LabBootstrap `
     -KeyVaultName $KeyVaultName `
     -ArtifactSource $ArtifactSource `
     -DomainControllerIp $DomainControllerIp
-& az vm restart --resource-group $ResourceGroupName --name dc01 --only-show-errors
+Restart-LabVm -ResourceGroupName $ResourceGroupName -VmName dc01
 Wait-LabVmReady -ResourceGroupName $ResourceGroupName -VmName dc01
 
 Invoke-LabBootstrap `
@@ -55,7 +55,7 @@ foreach ($vmName in 'web01', 'web02', 'sql01', 'migrate01') {
         -KeyVaultName $KeyVaultName `
         -ArtifactSource $ArtifactSource `
         -DomainControllerIp $DomainControllerIp
-    & az vm restart --resource-group $ResourceGroupName --name $vmName --only-show-errors
+    Restart-LabVm -ResourceGroupName $ResourceGroupName -VmName $vmName
     Wait-LabVmReady -ResourceGroupName $ResourceGroupName -VmName $vmName
 }
 

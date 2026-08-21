@@ -10,6 +10,10 @@ allowlisted Azure Firewall DNAT endpoints: `web01` on TCP 80, `web02` on TCP
   `-DeployerAddressPrefix`. A `/32` is required by default; pass
   `-AllowNon32DeployerPrefix` only when you intentionally need a broader CIDR
   and call the scenario-local script directly.
+- If a managed runner uses destination-specific egress for Azure traffic, pass
+  each verified Azure-visible `/32` through
+  `-AdditionalDeployerAddressPrefix`. Do not replace the primary public address;
+  browser and runner traffic can use different paths.
 - Plan for Azure Firewall Standard plus three Standard public IPs. This is one
   of the lab's more expensive topologies and should be torn down immediately
   after use.
@@ -27,6 +31,7 @@ The root dispatcher can launch this scenario directly:
   -ResourceGroupName rg-opmlab-public `
   -Location eastus2 `
   -DeployerAddressPrefix '203.0.113.10/32' `
+  -AdditionalDeployerAddressPrefix @('198.51.100.20/32', '198.51.100.21/32') `
   -UseTemporaryPolicyExemption
 ```
 
@@ -41,7 +46,8 @@ lifecycle:
   -Iac Terraform `
   -ResourceGroupName rg-opmlab-public `
   -Location eastus2 `
-  -DeployerAddressPrefix '203.0.113.10/32'
+  -DeployerAddressPrefix '203.0.113.10/32' `
+  -AdditionalDeployerAddressPrefix @('198.51.100.20/32', '198.51.100.21/32')
 ```
 
 `LegacyWeb.zip` and `lab.zip` are rebuilt on every deployment. The upload and
@@ -57,13 +63,23 @@ If you run with `-SkipGuestConfiguration`, re-run the same deploy command
 without that switch to reopen the restricted deployment window and complete
 guest configuration automatically.
 
+If Storage returns `AuthorizationFailure` even though the configured deployer
+IP rule is correct, the runner may reach Azure data-plane services through a
+same-region or private path that IP rules cannot match. With
+`-UseTemporaryPolicyExemption`, the script automatically retries using
+authenticated public access only during artifact upload and secret bootstrap.
+Pass `-AllowUnrestrictedTemporaryDeploymentAccess` only to force that fallback
+before the first restricted request. The script disables each endpoint
+immediately afterward and repeats lock-down in `finally`.
+
 ## Validate, reset, and remove
 
 ```powershell
 .\scripts\Test-Lab.ps1 `
   -Scenario PublicFirewall `
   -ResourceGroupName rg-opmlab-public `
-  -DeployerAddressPrefix '203.0.113.10/32'
+  -DeployerAddressPrefix '203.0.113.10/32' `
+  -AdditionalDeployerAddressPrefix @('198.51.100.20/32', '198.51.100.21/32')
 
 .\scripts\Reset-Lab.ps1 `
   -Scenario PublicFirewall `

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.38.33.27573",
-      "templateHash": "2299597281790972363"
+      "templateHash": "1862636020063305862"
     }
   },
   "parameters": {
@@ -44,6 +44,13 @@
       "type": "string",
       "metadata": {
         "description": "Required deployer IPv4 CIDR. A /32 is expected and becomes the only public DNAT source."
+      }
+    },
+    "additionalDeployerAddressPrefixes": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Additional explicit IPv4 CIDRs used by runners whose Azure-bound traffic exits through different addresses than general internet traffic."
       }
     },
     "enablePolicyExemption": {
@@ -142,9 +149,17 @@
     }
   },
   "variables": {
+    "copy": [
+      {
+        "name": "validatedAdditionalDeployerAddressPrefixes",
+        "count": "[length(parameters('additionalDeployerAddressPrefixes'))]",
+        "input": "[if(contains(parameters('additionalDeployerAddressPrefixes')[copyIndex('validatedAdditionalDeployerAddressPrefixes')], ':'), fail('additionalDeployerAddressPrefixes entries must be IPv4 CIDRs.'), format('{0}/{1}', parseCidr(parameters('additionalDeployerAddressPrefixes')[copyIndex('validatedAdditionalDeployerAddressPrefixes')]).network, parseCidr(parameters('additionalDeployerAddressPrefixes')[copyIndex('validatedAdditionalDeployerAddressPrefixes')]).cidr))]"
+      }
+    ],
     "scenario": "public-firewall",
     "deployerAddressCidr": "[if(contains(parameters('deployerAddressPrefix'), ':'), fail('deployerAddressPrefix must be an IPv4 CIDR, typically /32.'), parseCidr(parameters('deployerAddressPrefix')))]",
     "validatedDeployerAddressPrefix": "[format('{0}/{1}', variables('deployerAddressCidr').network, variables('deployerAddressCidr').cidr)]",
+    "validatedDeployerAddressPrefixes": "[concat(createArray(variables('validatedDeployerAddressPrefix')), variables('validatedAdditionalDeployerAddressPrefixes'))]",
     "vmRoles": [
       "dc01",
       "web01",
@@ -202,8 +217,8 @@
               "privateEndpoints": "[parameters('privateEndpointSubnetPrefix')]"
             }
           },
-          "deployerAddressPrefix": {
-            "value": "[variables('validatedDeployerAddressPrefix')]"
+          "deployerAddressPrefixes": {
+            "value": "[variables('validatedDeployerAddressPrefixes')]"
           },
           "privateAddresses": {
             "value": "[variables('privateAddresses')]"
@@ -216,7 +231,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "3897756426127111463"
+              "templateHash": "6168278524780332523"
             }
           },
           "parameters": {
@@ -232,8 +247,8 @@
             "prefixes": {
               "type": "object"
             },
-            "deployerAddressPrefix": {
-              "type": "string"
+            "deployerAddressPrefixes": {
+              "type": "array"
             },
             "privateAddresses": {
               "type": "object"
@@ -365,9 +380,7 @@
                         {
                           "name": "web01-http",
                           "description": "Restrict public HTTP to web01 to the explicit deployer CIDR.",
-                          "sourceAddresses": [
-                            "[parameters('deployerAddressPrefix')]"
-                          ],
+                          "sourceAddresses": "[parameters('deployerAddressPrefixes')]",
                           "destinationAddresses": [
                             "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('names').web01Pip), '2024-07-01').ipAddress]"
                           ],
@@ -383,9 +396,7 @@
                         {
                           "name": "web02-http",
                           "description": "Restrict public HTTP to web02 to the explicit deployer CIDR.",
-                          "sourceAddresses": [
-                            "[parameters('deployerAddressPrefix')]"
-                          ],
+                          "sourceAddresses": "[parameters('deployerAddressPrefixes')]",
                           "destinationAddresses": [
                             "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('names').web02Pip), '2024-07-01').ipAddress]"
                           ],
@@ -401,9 +412,7 @@
                         {
                           "name": "sql01-tcp",
                           "description": "Restrict public SQL access to sql01 to the explicit deployer CIDR.",
-                          "sourceAddresses": [
-                            "[parameters('deployerAddressPrefix')]"
-                          ],
+                          "sourceAddresses": "[parameters('deployerAddressPrefixes')]",
                           "destinationAddresses": [
                             "[reference(resourceId('Microsoft.Network/publicIPAddresses', parameters('names').sqlPip), '2024-07-01').ipAddress]"
                           ],
@@ -706,7 +715,7 @@
                       "access": "Allow",
                       "direction": "Inbound",
                       "protocol": "Tcp",
-                      "sourceAddressPrefix": "[reference(resourceId('Microsoft.Network/azureFirewalls', parameters('names').firewall), '2024-07-01').ipConfigurations[0].properties.privateIPAddress]",
+                      "sourceAddressPrefix": "[parameters('prefixes').firewall]",
                       "sourcePortRange": "*",
                       "destinationAddressPrefix": "*",
                       "destinationPortRange": "80"
@@ -758,10 +767,7 @@
                     }
                   }
                 ]
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Network/azureFirewalls', parameters('names').firewall)]"
-              ]
+              }
             },
             {
               "type": "Microsoft.Network/networkSecurityGroups",
@@ -778,7 +784,7 @@
                       "access": "Allow",
                       "direction": "Inbound",
                       "protocol": "Tcp",
-                      "sourceAddressPrefix": "[reference(resourceId('Microsoft.Network/azureFirewalls', parameters('names').firewall), '2024-07-01').ipConfigurations[0].properties.privateIPAddress]",
+                      "sourceAddressPrefix": "[parameters('prefixes').firewall]",
                       "sourcePortRange": "*",
                       "destinationAddressPrefix": "*",
                       "destinationPortRange": "1433"
@@ -830,10 +836,7 @@
                     }
                   }
                 ]
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Network/azureFirewalls', parameters('names').firewall)]"
-              ]
+              }
             },
             {
               "type": "Microsoft.Network/virtualNetworks/subnets",
@@ -873,6 +876,7 @@
               "dependsOn": [
                 "[resourceId('Microsoft.Network/networkSecurityGroups', 'nsg-identity')]",
                 "[resourceId('Microsoft.Network/routeTables', 'rt-identity-via-firewall')]",
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('names').vnet, 'management')]",
                 "[resourceId('Microsoft.Network/virtualNetworks', parameters('names').vnet)]"
               ]
             },
@@ -891,6 +895,7 @@
                 "defaultOutboundAccess": false
               },
               "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('names').vnet, 'identity')]",
                 "[resourceId('Microsoft.Network/virtualNetworks', parameters('names').vnet)]",
                 "[resourceId('Microsoft.Network/networkSecurityGroups', 'nsg-web')]",
                 "[resourceId('Microsoft.Network/routeTables', 'rt-web-via-firewall')]"
@@ -913,7 +918,8 @@
               "dependsOn": [
                 "[resourceId('Microsoft.Network/networkSecurityGroups', 'nsg-data')]",
                 "[resourceId('Microsoft.Network/routeTables', 'rt-data-via-firewall')]",
-                "[resourceId('Microsoft.Network/virtualNetworks', parameters('names').vnet)]"
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('names').vnet)]",
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('names').vnet, 'web')]"
               ]
             },
             {
@@ -926,6 +932,7 @@
                 "privateEndpointNetworkPolicies": "Disabled"
               },
               "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('names').vnet, 'data')]",
                 "[resourceId('Microsoft.Network/virtualNetworks', parameters('names').vnet)]"
               ]
             }
@@ -1025,8 +1032,8 @@
           "enableTemporaryDeploymentAccess": {
             "value": "[parameters('enableTemporaryDeploymentAccess')]"
           },
-          "deployerAddressPrefix": {
-            "value": "[variables('validatedDeployerAddressPrefix')]"
+          "deployerAddressPrefixes": {
+            "value": "[variables('validatedDeployerAddressPrefixes')]"
           },
           "firewallEgressPublicIpAddresses": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.firewallEgressPublicIpAddresses.value]"
@@ -1039,7 +1046,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.38.33.27573",
-              "templateHash": "2015690880348068448"
+              "templateHash": "17179892180027382145"
             }
           },
           "parameters": {
@@ -1065,15 +1072,22 @@
               "type": "bool",
               "defaultValue": false
             },
-            "deployerAddressPrefix": {
-              "type": "string"
+            "deployerAddressPrefixes": {
+              "type": "array"
             },
             "firewallEgressPublicIpAddresses": {
               "type": "array"
             }
           },
           "variables": {
-            "allowedPublicSources": "[if(parameters('enableTemporaryDeploymentAccess'), concat(createArray(parameters('deployerAddressPrefix')), parameters('firewallEgressPublicIpAddresses')), createArray())]"
+            "copy": [
+              {
+                "name": "storageAllowedPublicSources",
+                "count": "[length(variables('allowedPublicSources'))]",
+                "input": "[if(endsWith(variables('allowedPublicSources')[copyIndex('storageAllowedPublicSources')], '/32'), split(variables('allowedPublicSources')[copyIndex('storageAllowedPublicSources')], '/')[0], variables('allowedPublicSources')[copyIndex('storageAllowedPublicSources')])]"
+              }
+            ],
+            "allowedPublicSources": "[if(parameters('enableTemporaryDeploymentAccess'), concat(parameters('deployerAddressPrefixes'), parameters('firewallEgressPublicIpAddresses')), createArray())]"
           },
           "resources": [
             {
@@ -1198,10 +1212,10 @@
                   "copy": [
                     {
                       "name": "ipRules",
-                      "count": "[length(variables('allowedPublicSources'))]",
+                      "count": "[length(variables('storageAllowedPublicSources'))]",
                       "input": {
                         "action": "Allow",
-                        "value": "[variables('allowedPublicSources')[copyIndex('ipRules')]]"
+                        "value": "[variables('storageAllowedPublicSources')[copyIndex('ipRules')]]"
                       }
                     }
                   ],
@@ -2505,6 +2519,10 @@
       "type": "string",
       "value": "[variables('validatedDeployerAddressPrefix')]"
     },
+    "deployerAddressPrefixes": {
+      "type": "array",
+      "value": "[variables('validatedDeployerAddressPrefixes')]"
+    },
     "vnetId": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.vnetId.value]"
@@ -2544,7 +2562,7 @@
           "address": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.firewallPublicIpAddresses.value.web01]",
           "port": 80,
           "url": "[format('http://{0}', reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.firewallPublicIpAddresses.value.web01)]",
-          "sourceAddressPrefix": "[variables('validatedDeployerAddressPrefix')]",
+          "sourceAddressPrefixes": "[variables('validatedDeployerAddressPrefixes')]",
           "translatedAddress": "[variables('privateAddresses').web01]",
           "translatedPort": 80
         },
@@ -2553,7 +2571,7 @@
           "address": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.firewallPublicIpAddresses.value.web02]",
           "port": 80,
           "url": "[format('http://{0}', reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.firewallPublicIpAddresses.value.web02)]",
-          "sourceAddressPrefix": "[variables('validatedDeployerAddressPrefix')]",
+          "sourceAddressPrefixes": "[variables('validatedDeployerAddressPrefixes')]",
           "translatedAddress": "[variables('privateAddresses').web02]",
           "translatedPort": 80
         },
@@ -2561,7 +2579,7 @@
           "protocol": "tcp",
           "address": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2025-04-01').outputs.firewallPublicIpAddresses.value.sql01]",
           "port": 1633,
-          "sourceAddressPrefix": "[variables('validatedDeployerAddressPrefix')]",
+          "sourceAddressPrefixes": "[variables('validatedDeployerAddressPrefixes')]",
           "translatedAddress": "[variables('privateAddresses').sql01]",
           "translatedPort": 1433
         }

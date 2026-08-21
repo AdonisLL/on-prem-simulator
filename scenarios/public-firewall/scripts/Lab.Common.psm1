@@ -68,7 +68,7 @@ function Build-LabArtifacts {
     & $msbuildPath 'src\LegacyLab.sln' `
         /t:Restore `
         /p:RestorePackagesConfig=true `
-        /nologo
+        /nologo | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw 'NuGet restore failed.'
     }
@@ -79,7 +79,7 @@ function Build-LabArtifacts {
         /p:DeployOnBuild=true `
         /p:WebPublishMethod=Package `
         /p:AutoParameterizationWebConfigConnectionStrings=false `
-        /nologo
+        /nologo | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw 'LegacyWeb build/publish failed.'
     }
@@ -87,6 +87,7 @@ function Build-LabArtifacts {
     $packageRoot = Join-Path $RepoRoot 'src\LegacyWeb\obj\Release\Package\PackageTmp'
     if (
         -not (Test-Path (Join-Path $packageRoot 'bin\LegacyWeb.dll')) -or
+        -not (Test-Path (Join-Path $packageRoot 'bin\Microsoft.Web.Infrastructure.dll')) -or
         -not (Test-Path (Join-Path $packageRoot 'web.config'))
     ) {
         throw 'The IIS package output is incomplete.'
@@ -384,6 +385,31 @@ function Wait-LabVmReady {
     throw "$VmName did not return to a running state."
 }
 
+function Restart-LabVm {
+    param(
+        [Parameter(Mandatory)][string]$ResourceGroupName,
+        [Parameter(Mandatory)][string]$VmName
+    )
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        & az vm restart `
+            --resource-group $ResourceGroupName `
+            --name $VmName `
+            --only-show-errors `
+            --output none
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+
+        if ($attempt -lt 3) {
+            Write-Warning "Restart request for $VmName failed; retrying in 30 seconds ($attempt/3)."
+            Start-Sleep -Seconds 30
+        }
+    }
+
+    throw "Failed to restart $VmName after three attempts."
+}
+
 function Invoke-LabBootstrap {
     param(
         [Parameter(Mandatory)][string]$ResourceGroupName,
@@ -411,16 +437,31 @@ function Invoke-LabBootstrap {
         $parameters += "ComputerNamesCsv=$($ComputerName -join ',')"
     }
 
-    & az vm run-command invoke `
+    $runCommandOutput = & az vm run-command invoke `
         --resource-group $ResourceGroupName `
         --name $VmName `
         --command-id RunPowerShellScript `
         --scripts "@configuration\powershell\Invoke-AzureBootstrap.ps1" `
         --parameters $parameters `
         --only-show-errors `
-        --output none
+        --output json
     if ($LASTEXITCODE -ne 0) {
-        throw "Guest configuration role $Role failed on $VmName."
+        throw "Azure Run Command failed while applying guest configuration role $Role on $VmName."
+    }
+
+    try {
+        $runCommandResult = ($runCommandOutput -join [Environment]::NewLine) | ConvertFrom-Json
+    } catch {
+        throw "Azure Run Command returned an invalid result for guest configuration role $Role on $VmName."
+    }
+
+    $guestErrors = @(
+        $runCommandResult.value |
+        Where-Object { $_.code -like 'ComponentStatus/StdErr/*' -and -not [string]::IsNullOrWhiteSpace($_.message) } |
+        ForEach-Object message
+    )
+    if ($guestErrors.Count -gt 0) {
+        throw "Guest configuration role $Role failed on $VmName. $($guestErrors -join [Environment]::NewLine)"
     }
 }
 
@@ -672,12 +713,12 @@ function Get-LabFirewallEndpointMap {
 
 function Get-LabExpectedDeploymentAccessSources {
     param(
-        [Parameter(Mandatory)][string]$DeployerAddressPrefix,
+        [Parameter(Mandatory)][string[]]$DeployerAddressPrefixes,
         [Parameter(Mandatory)]$FirewallData
     )
 
     return @(
-        @($DeployerAddressPrefix) + @($FirewallData.PublicIpAddresses) |
+        @($DeployerAddressPrefixes) + @($FirewallData.PublicIpAddresses) |
         ForEach-Object { Normalize-LabIpRuleValue $_ } |
         Where-Object { $_ -and $_ -ne '*' } |
         Sort-Object -Unique
@@ -687,7 +728,7 @@ function Get-LabExpectedDeploymentAccessSources {
 function Assert-LabFirewallEndpointContract {
     param(
         [Parameter(Mandatory)]$FirewallData,
-        [Parameter(Mandatory)][string]$DeployerAddressPrefix
+        [Parameter(Mandatory)][string[]]$DeployerAddressPrefixes
     )
 
     if (@($FirewallData.PublicIpAddresses).Count -ne 3) {
@@ -716,14 +757,19 @@ function Assert-LabFirewallEndpointContract {
         throw 'The SQL endpoint must expose public TCP 1633 to private TCP 1433.'
     }
 
-    $normalizedDeployerPrefix = Normalize-LabIpRuleValue $DeployerAddressPrefix
+    $normalizedDeployerPrefixes = @(
+        $DeployerAddressPrefixes |
+        ForEach-Object { Normalize-LabIpRuleValue $_ } |
+        Sort-Object -Unique
+    )
     foreach ($role in $FirewallData.EndpointMap.Keys) {
         $sourceAddresses = @($FirewallData.EndpointMap[$role].SourceAddresses | Sort-Object -Unique)
-        if (-not ($sourceAddresses -contains $normalizedDeployerPrefix)) {
-            throw "$role does not restrict Azure Firewall DNAT to $normalizedDeployerPrefix."
+        $missingSources = @($normalizedDeployerPrefixes | Where-Object { $sourceAddresses -notcontains $_ })
+        if ($missingSources.Count) {
+            throw "$role does not allow expected Azure Firewall DNAT sources: $($missingSources -join ', ')."
         }
 
-        $extraSources = @($sourceAddresses | Where-Object { $_ -ne $normalizedDeployerPrefix })
+        $extraSources = @($sourceAddresses | Where-Object { $normalizedDeployerPrefixes -notcontains $_ })
         if ($extraSources.Count) {
             throw "$role accepts unexpected source prefixes: $($extraSources -join ', ')."
         }
@@ -762,7 +808,7 @@ function Get-LabStorageNetworkRules {
     $details = & az storage account show `
         --resource-group $ResourceGroupName `
         --name $StorageAccountName `
-        --query '{publicNetworkAccess:publicNetworkAccess, defaultAction:networkRuleSet.defaultAction, ipRules:networkRuleSet.ipRules[].value}' `
+        --query '{publicNetworkAccess:publicNetworkAccess, defaultAction:networkRuleSet.defaultAction, ipRules:networkRuleSet.ipRules[].ipAddressOrRange}' `
         --output json `
         --only-show-errors | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0 -or -not $details) {

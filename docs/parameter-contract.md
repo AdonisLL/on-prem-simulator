@@ -24,6 +24,7 @@ a scenario implicitly.
 | `SkipGuestConfiguration` | false | Stops after infrastructure for staged recovery |
 | `AutoApprove` | false | Terraform approval remains explicit by default |
 | `UseTemporaryPolicyExemption` | false | Azure-native/public-firewall; temporarily applies the approved `SecurityControl=Ignore` resource-group tag and deployment access, then locks down and restores/removes the tag in `finally` |
+| `AllowUnrestrictedTemporaryDeploymentAccess` | false | Public-firewall only; forces the authenticated all-public-networks bootstrap fallback immediately. With `UseTemporaryPolicyExemption`, the lifecycle also activates this fallback automatically after a restricted Storage request is rejected, then disables access immediately |
 | `DeployerAddressPrefix` | none | Required for `PublicFirewall`; an explicit IPv4 CIDR, normally the deployer's current `/32`, used as the only public DNAT source |
 
 All scenarios use `corp.contoso.local`, NetBIOS name `CONTOSO`, deterministic
@@ -57,8 +58,13 @@ Standard at the ingress/egress boundary. Three firewall public IPs provide:
 
 DNAT rules accept only `DeployerAddressPrefix`; workload NSGs accept the
 translated flow from Azure Firewall. There is no public RDP rule. Key Vault and
-Storage deployment access is temporary and restricted; lifecycle cleanup
-restores default-deny and policy enforcement.
+Storage deployment access is temporary and restricted by default; lifecycle
+cleanup restores default-deny and policy enforcement. Runners whose Azure
+same-region or private data-plane path cannot match public IP rules
+automatically fall back after the restricted request is rejected.
+`AllowUnrestrictedTemporaryDeploymentAccess` can force that path immediately;
+authentication remains required and each PaaS endpoint is disabled immediately
+after its bootstrap operation.
 
 ## Parity rules
 
